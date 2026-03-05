@@ -1,0 +1,339 @@
+---
+title: 'Branch Management'
+description: 'Managing branch locations (sucursales) in the CEDIS Pedidos system'
+---
+
+## Overview
+
+Branches (sucursales) are the organizational units in CEDIS Pedidos. Each branch can place orders, and users with the `sucursal` role are typically assigned to a specific branch location.
+
+<Note>
+Branch data is used throughout the system for order routing, user assignments, and access control.
+</Note>
+
+## Branch Structure
+
+Each branch contains the following information:
+
+```typescript
+export interface Sucursal {
+  id: string              // UUID primary key
+  nombre: string          // Full branch name (e.g., "Pachuca I")
+  abreviacion: string     // Short code (e.g., "PAC1")
+  ciudad: string          // City location
+  activa: boolean         // Active status
+}
+```
+
+Source: `src/lib/types.ts:22-28`
+
+## Database Schema
+
+```sql
+CREATE TABLE sucursales (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  nombre      text NOT NULL,
+  abreviacion text UNIQUE NOT NULL,
+  ciudad      text NOT NULL,
+  activa      boolean NOT NULL DEFAULT true
+);
+```
+
+Source: `supabase/schema.sql:18-24`
+
+### Key Constraints
+
+- **Primary Key**: `id` (UUID)
+- **Unique Constraint**: `abreviacion` must be unique across all branches
+- **Not Null**: All fields except `activa` have default values
+
+## Default Branches
+
+The system ships with three pre-configured branches:
+
+<ParamField path="Pachuca I" type="sucursal">
+  - **Abreviación**: PAC1
+  - **Ciudad**: Pachuca
+  - Primary distribution center
+</ParamField>
+
+<ParamField path="Guadalajara" type="sucursal">
+  - **Abreviación**: GDL
+  - **Ciudad**: Guadalajara
+  - Western region hub
+</ParamField>
+
+<ParamField path="CDMX Norte" type="sucursal">
+  - **Abreviación**: CDMX
+  - **Ciudad**: Ciudad de México
+  - Metropolitan area distribution
+</ParamField>
+
+```sql
+INSERT INTO sucursales (nombre, abreviacion, ciudad) VALUES
+  ('Pachuca I',   'PAC1', 'Pachuca'),
+  ('Guadalajara', 'GDL',  'Guadalajara'),
+  ('CDMX Norte',  'CDMX', 'Ciudad de México');
+```
+
+Source: `supabase/schema.sql:193-196`
+
+## Branch Selection in Forms
+
+Branches are loaded and filtered for active status:
+
+```typescript
+// Fetch active branches
+const { data } = await supabase
+  .from('sucursales')
+  .select('id, nombre')
+  .eq('activa', true)
+  .order('nombre')
+```
+
+Source: `src/components/admin/SolicitudesPanel.tsx:50-54`
+
+### User Interface
+
+Branches appear in dropdown selectors:
+
+```tsx
+<select value={editState.sucursal_id}>
+  <option value="">— Sin sucursal —</option>
+  {sucursales.map(s => (
+    <option key={s.id} value={s.id}>{s.nombre}</option>
+  ))}
+</select>
+```
+
+Source: `src/components/admin/SolicitudesPanel.tsx:474-482`
+
+## Branch Assignment
+
+### User-to-Branch Linking
+
+Users are linked to branches via the `sucursal_id` foreign key:
+
+```sql
+CREATE TABLE users (
+  ...
+  sucursal_id uuid REFERENCES sucursales(id) ON DELETE SET NULL
+);
+```
+
+<Note>
+The `ON DELETE SET NULL` constraint means if a branch is deleted, associated users will have their `sucursal_id` set to `NULL` rather than being deleted.
+</Note>
+
+### Admin vs Sucursal Role
+
+- **Admin users**: Typically have `sucursal_id = NULL` (not tied to a specific branch)
+- **Sucursal users**: Must have a `sucursal_id` assigned to operate
+
+## Filtering by Branch
+
+The dashboard allows filtering orders by branch:
+
+```typescript
+const filtered = pedidos.filter(p => {
+  if (filterSucursal !== 'all' && p.sucursal_id !== filterSucursal) 
+    return false
+  // ... other filters
+  return true
+})
+```
+
+Source: `src/pages/Dashboard.tsx:80-84`
+
+### Filter Dropdown
+
+```tsx
+<select value={filterSucursal} onChange={e => setFilterSucursal(e.target.value)}>
+  <option value="all">Todas las sucursales</option>
+  {sucursales.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+</select>
+```
+
+Source: `src/pages/Dashboard.tsx:173-178`
+
+## Active vs Inactive Branches
+
+The `activa` boolean flag controls branch visibility:
+
+- **Active** (`activa = true`): Branch appears in dropdowns and can receive new orders
+- **Inactive** (`activa = false`): Branch is hidden from most UI elements but historical data remains
+
+<Warning>
+Setting a branch to inactive does **not** delete historical orders. Use this to temporarily disable a branch without losing data.
+</Warning>
+
+## Row-Level Security
+
+All authenticated users can view branches:
+
+```sql
+CREATE POLICY "sucursales_select" ON sucursales FOR SELECT 
+  USING (auth.role() = 'authenticated');
+```
+
+Source: `supabase/schema.sql:113`
+
+<Note>
+Currently, there are no policies for INSERT, UPDATE, or DELETE on the `sucursales` table. These operations should be performed via direct SQL or Supabase Dashboard by super admins only.
+</Note>
+
+## Managing Branches via SQL
+
+### Adding a New Branch
+
+<Steps>
+  <Step title="Open SQL Editor">
+    Navigate to Supabase Dashboard → SQL Editor.
+  </Step>
+  
+  <Step title="Execute Insert Statement">
+    ```sql
+    INSERT INTO sucursales (nombre, abreviacion, ciudad, activa)
+    VALUES ('Monterrey', 'MTY', 'Monterrey', true);
+    ```
+  </Step>
+  
+  <Step title="Verify Creation">
+    Query the table to confirm:
+    ```sql
+    SELECT * FROM sucursales ORDER BY nombre;
+    ```
+  </Step>
+</Steps>
+
+### Deactivating a Branch
+
+```sql
+UPDATE sucursales 
+SET activa = false 
+WHERE abreviacion = 'GDL';
+```
+
+### Updating Branch Details
+
+```sql
+UPDATE sucursales
+SET nombre = 'Guadalajara Centro',
+    ciudad = 'Guadalajara'
+WHERE abreviacion = 'GDL';
+```
+
+<Warning>
+**Do not change** the `abreviacion` after orders have been created. This field is used as a stable identifier in order codes.
+</Warning>
+
+## Branch Display in Orders
+
+Orders display branch information via joined queries:
+
+```typescript
+const { data } = await supabase
+  .from('pedidos')
+  .select('*, sucursal:sucursales(*)')
+  .order('created_at', { ascending: false })
+```
+
+Source: `src/pages/Dashboard.tsx:46-49`
+
+Result structure:
+
+```typescript
+interface PedidoRow extends Pedido {
+  sucursal?: Sucursal
+}
+```
+
+Source: `src/pages/Dashboard.tsx:13-15`
+
+## Access Control by Branch
+
+### Sucursal Users
+
+Users with `rol = 'sucursal'` can only see orders from their assigned branch:
+
+```sql
+CREATE POLICY "pedidos_select" ON pedidos FOR SELECT USING (
+  EXISTS (SELECT 1 FROM users WHERE id = auth.uid() AND rol = 'admin')
+  OR sucursal_id = (SELECT sucursal_id FROM users WHERE id = auth.uid())
+);
+```
+
+Source: `supabase/schema.sql:125-128`
+
+### Admin Users
+
+Admins can view and manage orders across all branches.
+
+## Best Practices
+
+1. **Unique Abbreviations**: Keep abbreviations short (2-4 characters) and memorable
+2. **Meaningful Names**: Use full descriptive names (e.g., "CDMX Norte" instead of "Branch 3")
+3. **City Accuracy**: Ensure ciudad field matches the actual geographic location
+4. **Active Flag**: Use the `activa` flag instead of deleting branches
+5. **Avoid Orphaning**: Before deactivating a branch, reassign or deactivate associated users
+
+## Related Data
+
+### Users Assigned to Branch
+
+Query users by branch:
+
+```sql
+SELECT u.nombre, u.email, u.rol, s.nombre AS sucursal_nombre
+FROM users u
+LEFT JOIN sucursales s ON u.sucursal_id = s.id
+WHERE s.abreviacion = 'PAC1';
+```
+
+### Orders from Branch
+
+```sql
+SELECT p.codigo_pedido, p.fecha_entrega, p.estado, s.nombre AS sucursal
+FROM pedidos p
+JOIN sucursales s ON p.sucursal_id = s.id
+WHERE s.abreviacion = 'GDL'
+ORDER BY p.created_at DESC;
+```
+
+## Troubleshooting
+
+### Branch Not Appearing in Dropdowns
+
+**Cause**: The branch may be inactive.
+
+**Solution**:
+```sql
+UPDATE sucursales SET activa = true WHERE abreviacion = 'PAC1';
+```
+
+### Users Cannot Create Orders
+
+**Cause**: User may not have a `sucursal_id` assigned.
+
+**Solution**: Assign the user to an active branch via user management interface.
+
+### Duplicate Abbreviation Error
+
+**Cause**: The `abreviacion` must be unique.
+
+**Solution**: Choose a different abbreviation:
+```sql
+INSERT INTO sucursales (nombre, abreviacion, ciudad)
+VALUES ('Pachuca II', 'PAC2', 'Pachuca');
+```
+
+## Related Sections
+
+<CardGroup cols={2}>
+  <Card title="User Management" icon="users" href="/admin/user-management">
+    Assign users to branch locations
+  </Card>
+  <Card title="Access Requests" icon="user-plus" href="/admin/access-requests">
+    Review branch selection in access requests
+  </Card>
+</CardGroup>

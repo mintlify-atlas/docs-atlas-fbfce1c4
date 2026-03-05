@@ -1,0 +1,151 @@
+---
+title: Branch User Workflow
+description: Complete guide for branch users to create and manage orders in CEDIS Pedidos
+icon: building
+---
+
+Branch users create orders from their assigned locations by selecting materials from the 168-item catalog and submitting them for CEDIS approval.
+
+## Creating a New Order
+
+<Steps>
+  <Step title="Navigate to New Order">
+    Click **Nuevo Pedido** from the sidebar or dashboard to open the order creation form.
+  </Step>
+
+  <Step title="Select Delivery Details">
+    Configure the order header:
+    
+    - **Fecha de Entrega**: Choose the delivery date for this order
+    - **Tipo de Entrega**: Select either:
+      - `HINO` - Delivery by CEDIS truck
+      - `Recolección en CEDIS` - Branch picks up from warehouse
+    
+    The order code is automatically generated as `{BRANCH}-{YYYYMMDD}` (e.g., `PAC1-20260305`)
+  </Step>
+
+  <Step title="Add Materials by Category">
+    The order form groups materials into 5 color-coded categories:
+    
+    <CardGroup cols={2}>
+      <Card title="Materias Primas" icon="flask" color="#2B5EA7">
+        40 base materials like Aceite de Pino, ADBS, Sosa Líquida
+      </Card>
+      <Card title="Esencias" icon="spray-can" color="#7C3AED">
+        82 fragrances from Alaska to Zucchini
+      </Card>
+      <Card title="Varios" icon="box" color="#059669">
+        21 miscellaneous items like Sal Industrial, Citrico
+      </Card>
+      <Card title="Colores" icon="palette" color="#DC2626">
+        11 pigments including Azul, Rojo, Verde
+      </Card>
+      <Card title="Envases Vacíos" icon="box-open" color="#D97706">
+        14 empty containers (bottles, drums, buckets)
+      </Card>
+    </CardGroup>
+    
+    Enter quantities in kilograms for each material. The system calculates total weight in real-time.
+  </Step>
+
+  <Step title="Monitor Weight Limit">
+    The floating total bar shows your current weight:
+    
+    <Info>
+      Orders cannot exceed **11,500 kg**. The system displays a warning when you approach this limit.
+    </Info>
+    
+    If you exceed the limit, you'll see:
+    
+    <Warning>
+      **Capacidad excedida:** El pedido iguala o supera el límite de 11,500 kg. Reduce las cantidades para poder enviarlo.
+    </Warning>
+  </Step>
+
+  <Step title="Save as Draft">
+    Click **Guardar borrador** to save your progress. Draft orders can be edited later and remain in `borrador` state.
+    
+    <Note>
+      Drafts are automatically saved every 30 seconds while you work.
+    </Note>
+  </Step>
+
+  <Step title="Submit Order">
+    When ready, click **Enviar pedido**. A confirmation modal shows:
+    
+    - Branch name
+    - Order code
+    - Delivery date and type
+    - Total weight in kilograms
+    
+    Click **Sí, enviar pedido** to submit.
+    
+    <Warning>
+      Once submitted, orders move to `enviado` state and **cannot be edited**. They await admin approval.
+    </Warning>
+  </Step>
+</Steps>
+
+## Viewing Order History
+
+Access **Mis Pedidos** from the sidebar to see all orders for your branch.
+
+### Order States
+
+Each order displays one of these states:
+
+<CardGroup cols={2}>
+  <Card title="Borrador" icon="pencil" color="#6B7280">
+    Draft - still editable and deletable
+  </Card>
+  <Card title="Enviado" icon="paper-plane" color="#D97706">
+    Submitted - awaiting CEDIS review
+  </Card>
+  <Card title="Aprobado" icon="check-circle" color="#059669">
+    Approved by admin - ready for printing
+  </Card>
+  <Card title="Impreso" icon="printer" color="#2B5EA7">
+    Printed - order in fulfillment
+  </Card>
+</CardGroup>
+
+### Available Actions
+
+From the order list:
+
+- **Editar/Ver**: Open the order (edit drafts, view submitted orders read-only)
+- **Resumen**: View/print the fulfillment format (Formato de Surtido)
+- **Borrar**: Delete drafts only (not available for submitted orders)
+
+<Note>
+  The order history table shows order code, delivery date, total weight, current state, and submission timestamp.
+</Note>
+
+## Order Code Format
+
+Order codes follow the pattern: `{BRANCH_ABBREV}-{YYYYMMDD}`
+
+Examples:
+- `PAC1-20260315` - Pachuca I branch, March 15, 2026
+- `GDL-20260420` - Guadalajara branch, April 20, 2026
+- `CDMX-20260501` - CDMX Norte branch, May 1, 2026
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Plan orders in advance">
+    Choose delivery dates that give CEDIS adequate time to review and prepare materials.
+  </Accordion>
+  
+  <Accordion title="Stay under weight limits">
+    Keep orders well below 11,500 kg to account for weight variations and rounding.
+  </Accordion>
+  
+  <Accordion title="Review before submitting">
+    Double-check all quantities before clicking **Enviar pedido** - submitted orders cannot be modified.
+  </Accordion>
+  
+  <Accordion title="Use the print format">
+    Export the **Resumen** PDF for your records before the order ships.
+  </Accordion>
+</AccordionGroup>

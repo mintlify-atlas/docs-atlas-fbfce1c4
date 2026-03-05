@@ -1,0 +1,515 @@
+---
+title: Vercel Deployment
+description: Deploy CEDIS Pedidos to production using Vercel's platform with automatic builds and environment configuration
+---
+
+## Overview
+
+CEDIS Pedidos is optimized for deployment on Vercel, taking advantage of automatic builds, serverless deployment, and built-in CDN. This guide covers deploying your application from a Git repository to a production environment.
+
+## Prerequisites
+
+- A [Vercel account](https://vercel.com/signup) (free tier available)
+- Your code pushed to a Git repository (GitHub, GitLab, or Bitbucket)
+- A configured [Supabase project](/deployment/supabase-configuration)
+- Your Supabase credentials ready (`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`)
+
+## Deployment Process
+
+<Steps>
+  <Step title="Import your project to Vercel">
+    1. Log in to your [Vercel dashboard](https://vercel.com/dashboard)
+    2. Click **Add New...** → **Project**
+    3. Select your Git provider and authorize Vercel to access your repositories
+    4. Find and import the `App_Pedidos_CEDIS` repository
+
+    <Note>
+    Vercel will automatically detect that this is a Vite project and configure the build settings accordingly.
+    </Note>
+  </Step>
+
+  <Step title="Configure environment variables">
+    Before deploying, add your environment variables:
+
+    1. In the **Configure Project** screen, expand **Environment Variables**
+    2. Add the following variables:
+
+    | Name | Value |
+    |------|-------|
+    | `VITE_SUPABASE_URL` | Your Supabase project URL |
+    | `VITE_SUPABASE_ANON_KEY` | Your Supabase anonymous key |
+
+    <Warning>
+    **Important**: Add these variables to all environments (Production, Preview, and Development) to ensure consistent behavior across deployments.
+    </Warning>
+
+    <CodeGroup>
+    ```bash Production
+    VITE_SUPABASE_URL=https://xxxxx.supabase.co
+    VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    ```
+
+    ```bash Preview (Optional)
+    # Use the same values as production
+    # Or use a separate Supabase project for staging
+    VITE_SUPABASE_URL=https://xxxxx-staging.supabase.co
+    VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Configure build settings">
+    Vercel should auto-detect these settings, but verify they match:
+
+    | Setting | Value |
+    |---------|-------|
+    | **Framework Preset** | Vite |
+    | **Build Command** | `npm run build` |
+    | **Output Directory** | `dist` |
+    | **Install Command** | `npm install` |
+    | **Node Version** | 18.x or higher |
+
+    <Note>
+    The build command runs `tsc -b && vite build`, which compiles TypeScript and builds the production bundle.
+    </Note>
+  </Step>
+
+  <Step title="Deploy">
+    Click **Deploy** to start your first deployment.
+
+    Vercel will:
+    1. Clone your repository
+    2. Install dependencies with `npm install`
+    3. Run the build command
+    4. Deploy the built assets to their global CDN
+    5. Provide you with a production URL
+
+    The initial deployment typically takes 2-3 minutes.
+  </Step>
+</Steps>
+
+## Vercel Configuration
+
+CEDIS Pedidos includes a `vercel.json` configuration file for optimal SPA routing:
+
+```json vercel.json
+{
+    "rewrites": [
+        {
+            "source": "/(.*)",
+            "destination": "/index.html"
+        }
+    ]
+}
+```
+
+### Why This Configuration Matters
+
+This rewrite rule is **critical** for single-page applications (SPAs) using client-side routing:
+
+- **Client-side routing**: React Router handles navigation without full page reloads
+- **Direct URL access**: Users can access any route directly (e.g., `/admin/dashboard`)
+- **Refresh handling**: Page refreshes on any route return the correct content
+- **404 prevention**: All routes serve the main `index.html`, letting React Router handle routing
+
+<Warning>
+**Without this configuration**, navigating to any route except `/` (root) and refreshing the page would result in a 404 error, because Vercel would try to find a file at that path instead of serving the React application.
+</Warning>
+
+## Build Configuration
+
+The application's build process is defined in `package.json`:
+
+```json package.json
+{
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  }
+}
+```
+
+### Build Process
+
+<Steps>
+  <Step title="TypeScript compilation">
+    `tsc -b` compiles all TypeScript files and checks for type errors.
+
+    If there are TypeScript errors, the build will fail. This ensures type safety in production.
+  </Step>
+
+  <Step title="Vite production build">
+    `vite build` creates an optimized production bundle:
+    
+    - Minifies JavaScript and CSS
+    - Tree-shakes unused code
+    - Optimizes assets (images, fonts)
+    - Generates source maps
+    - Outputs to the `dist/` directory
+
+    The Vite configuration (`vite.config.ts`) handles:
+    ```typescript
+    import { defineConfig } from 'vite'
+    import react from '@vitejs/plugin-react'
+    import tailwindcss from '@tailwindcss/vite'
+    import path from 'path'
+
+    export default defineConfig({
+      plugins: [
+        react(),
+        tailwindcss(),
+      ],
+      resolve: {
+        alias: {
+          "@": path.resolve(__dirname, "./src"),
+        },
+      },
+    })
+    ```
+  </Step>
+
+  <Step title="Asset optimization">
+    Vite automatically:
+    - Generates content-hashed filenames for long-term caching
+    - Splits code into optimized chunks
+    - Inlines small assets as base64
+    - Optimizes images and other static assets
+  </Step>
+</Steps>
+
+## Automatic Deployments
+
+Once your project is connected to Vercel, automatic deployments are configured:
+
+### Production Deployments
+
+- **Trigger**: Push to your main/master branch
+- **Environment**: Production environment variables
+- **Domain**: Your production domain (e.g., `cedis-pedidos.vercel.app`)
+- **Behavior**: Automatically promoted to production
+
+### Preview Deployments
+
+- **Trigger**: Push to any other branch or open a pull request
+- **Environment**: Preview environment variables (if different from production)
+- **Domain**: Unique preview URL (e.g., `cedis-pedidos-git-feature.vercel.app`)
+- **Behavior**: Isolated environment for testing changes
+
+<Note>
+Every push generates a unique deployment URL, making it easy to preview changes before merging to production.
+</Note>
+
+## Custom Domain Setup
+
+<Steps>
+  <Step title="Add a custom domain">
+    1. Go to your project in Vercel
+    2. Navigate to **Settings** → **Domains**
+    3. Click **Add** and enter your domain name
+    4. Choose whether to redirect from www or vice versa
+  </Step>
+
+  <Step title="Configure DNS">
+    Vercel will provide DNS records to add to your domain registrar:
+
+    <CodeGroup>
+    ```txt A Record (Apex domain)
+    Type: A
+    Name: @
+    Value: 76.76.21.21
+    TTL: 3600
+    ```
+
+    ```txt CNAME Record (www subdomain)
+    Type: CNAME
+    Name: www
+    Value: cname.vercel-dns.com
+    TTL: 3600
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Wait for DNS propagation">
+    DNS changes can take up to 48 hours to propagate globally, but typically complete within a few hours.
+
+    Vercel will automatically provision an SSL certificate once DNS is configured.
+  </Step>
+</Steps>
+
+## Environment Management
+
+### Managing Environment Variables
+
+Update environment variables in Vercel:
+
+1. Navigate to **Settings** → **Environment Variables**
+2. Edit existing variables or add new ones
+3. Select which environments to apply changes to
+4. **Redeploy** your application for changes to take effect
+
+<Warning>
+**Important**: Environment variables are embedded into the build at build time. You must redeploy after changing environment variables for the changes to take effect.
+</Warning>
+
+### Environment Types
+
+<CodeGroup>
+```bash Production
+# Used for production deployments (main branch)
+VITE_SUPABASE_URL=https://prod.supabase.co
+VITE_SUPABASE_ANON_KEY=prod_key_here
+```
+
+```bash Preview
+# Used for preview deployments (feature branches)
+VITE_SUPABASE_URL=https://staging.supabase.co
+VITE_SUPABASE_ANON_KEY=staging_key_here
+```
+
+```bash Development
+# Used for local development via Vercel CLI
+VITE_SUPABASE_URL=http://localhost:54321
+VITE_SUPABASE_ANON_KEY=local_key_here
+```
+</CodeGroup>
+
+## Performance Optimization
+
+Vercel provides several performance features out of the box:
+
+### Global CDN
+
+- Assets served from edge locations worldwide
+- Automatic caching with optimal cache headers
+- Reduced latency for users across different regions
+
+### Automatic Compression
+
+- Brotli compression for modern browsers
+- Gzip fallback for older browsers
+- Reduces bandwidth usage and improves load times
+
+### Image Optimization
+
+While CEDIS Pedidos doesn't heavily use images, if you add product images or logos:
+
+```jsx
+import Image from 'next/image' // If using Next.js
+
+// For Vite, optimize images at build time
+import logo from './logo.png?w=200&h=200'
+```
+
+## Monitoring and Analytics
+
+### Vercel Analytics
+
+Enable Vercel Analytics for insights:
+
+1. Go to **Analytics** in your project
+2. Click **Enable Analytics**
+3. View real-time and historical data:
+   - Page views and unique visitors
+   - Top pages and referrers
+   - Performance metrics (Web Vitals)
+   - Device and browser breakdown
+
+### Build Logs
+
+Access build logs to troubleshoot deployment issues:
+
+1. Navigate to **Deployments**
+2. Click on any deployment
+3. View the **Build Logs** tab
+4. Check for errors or warnings during the build process
+
+## Rollback and Version Control
+
+### Instant Rollback
+
+If a deployment causes issues:
+
+<Steps>
+  <Step title="Identify the last working deployment">
+    Go to **Deployments** and find a previous successful deployment
+  </Step>
+
+  <Step title="Promote to production">
+    Click the three dots menu (**...**) next to the deployment
+    Select **Promote to Production**
+  </Step>
+
+  <Step title="Verify rollback">
+    The previous version is now live
+    The problematic deployment remains in history for investigation
+  </Step>
+</Steps>
+
+<Note>
+Rollbacks are instant and don't require rebuilding. Vercel keeps all previous deployments available for instant promotion.
+</Note>
+
+## Troubleshooting
+
+### Build Failures
+
+**Error**: `Type error: ...`
+
+**Solution**: TypeScript compilation failed. Check the build logs for specific errors and fix them in your code.
+
+```bash
+# Test the build locally
+npm run build
+```
+
+---
+
+**Error**: `Module not found`
+
+**Solution**: A dependency is missing or import path is incorrect.
+
+```bash
+# Ensure all dependencies are in package.json
+npm install
+
+# Check import paths use the correct aliases
+import { supabase } from '@/lib/supabase'
+```
+
+### Runtime Errors
+
+**Error**: White screen after deployment
+
+**Solution**: Check the browser console for errors. Common causes:
+- Missing environment variables
+- Incorrect Supabase credentials
+- CORS issues
+
+---
+
+**Error**: 404 on direct route access
+
+**Solution**: Verify `vercel.json` exists and contains the rewrite rule:
+
+```json vercel.json
+{
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
+```
+
+### Supabase Connection Issues
+
+**Error**: `Failed to fetch` or `Network error`
+
+**Solution**:
+
+<Steps>
+  <Step title="Verify environment variables">
+    Check that `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are set in Vercel
+  </Step>
+
+  <Step title="Check Supabase project status">
+    Ensure your Supabase project is active (not paused)
+  </Step>
+
+  <Step title="Test connection locally">
+    Use the same environment variables locally to reproduce the issue
+  </Step>
+
+  <Step title="Redeploy after changes">
+    If you updated environment variables, trigger a new deployment
+  </Step>
+</Steps>
+
+## Security Best Practices
+
+<Warning>
+**Production Security Checklist**
+
+- ✅ Environment variables set in Vercel (not committed to Git)
+- ✅ Supabase RLS policies enabled on all tables
+- ✅ Only `anon` key exposed to frontend (never `service_role`)
+- ✅ HTTPS enforced (automatic with Vercel)
+- ✅ Regular dependency updates for security patches
+- ✅ Supabase auth configured with strong password requirements
+- ✅ Admin role assigned only to authorized personnel
+</Warning>
+
+### Security Headers
+
+Enhance security by adding headers to `vercel.json`:
+
+```json vercel.json
+{
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        }
+      ]
+    }
+  ]
+}
+```
+
+## Cost Optimization
+
+### Vercel Free Tier
+
+The free tier includes:
+- Unlimited personal projects
+- 100 GB bandwidth per month
+- Automatic SSL certificates
+- Global CDN
+- Preview deployments
+
+<Note>
+CEDIS Pedidos is well within free tier limits for small to medium-sized operations. Monitor usage in the Vercel dashboard.
+</Note>
+
+### Supabase Free Tier
+
+Supabase free tier includes:
+- 500 MB database space
+- 1 GB file storage
+- 2 GB bandwidth per month
+- 50,000 monthly active users
+- 7-day data retention for backups
+
+<Note>
+Projects on the free tier pause after 7 days of inactivity. Upgrade to Pro ($25/month) for always-on projects and increased limits.
+</Note>
+
+## Next Steps
+
+Your CEDIS Pedidos application is now deployed! Here's what to do next:
+
+1. **Create user accounts** in Supabase for your admin and branch users
+2. **Test the complete workflow** from order creation to approval and printing
+3. **Set up monitoring** with Vercel Analytics to track usage
+4. **Configure custom domain** for a professional appearance
+5. **Schedule regular backups** of your Supabase database
+6. **Document your deployment** process for your team
+
+## Additional Resources
+
+- [Vercel Documentation](https://vercel.com/docs)
+- [Vite Deployment Guide](https://vitejs.dev/guide/static-deploy.html)
+- [Supabase Production Checklist](https://supabase.com/docs/guides/platform/going-into-prod)

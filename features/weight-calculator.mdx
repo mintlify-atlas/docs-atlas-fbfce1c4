@@ -1,0 +1,390 @@
+---
+title: Weight Calculator
+description: Automatic weight calculation based on material quantities and approximate weights
+icon: scale-balanced
+---
+
+CEDIS Pedidos automatically calculates order weights based on requested quantities and predefined material weights, ensuring accurate tracking and enforcement of weight limits.
+
+## How It Works
+
+The weight calculation system multiplies the requested quantity by each material's approximate weight:
+
+```typescript
+const updateDetalle = (materialId: string, value: number | null) => {
+    setDetalles(prev =>
+        prev.map(d => {
+            if (d.material.id !== materialId) return d
+            const pesoAprox = d.material.categoria === 'envase_vacio'
+                ? 0
+                : (d.material.peso_aproximado ?? 0)
+            const cantidad_kilos = value != null ? value * pesoAprox : null
+            return {
+                ...d,
+                cantidad_solicitada: value,
+                cantidad_kilos,
+                peso_total: cantidad_kilos,
+            }
+        })
+    )
+}
+```
+
+## Material Weight Properties
+
+Each material in the system has weight-related properties:
+
+```typescript
+export interface Material {
+    id: string
+    codigo: string | null
+    nombre: string
+    categoria: Categoria
+    unidad_base: string
+    peso_aproximado: number | null  // Weight per unit in kg
+    envase: string | null
+    orden: number
+    activo: boolean
+}
+```
+
+### Weight Calculation Formula
+
+```
+cantidad_kilos = cantidad_solicitada × peso_aproximado
+```
+
+<Note>
+  The `peso_aproximado` field stores the weight per unit in kilograms. For example, if one unit weighs 25kg, `peso_aproximado = 25`.
+</Note>
+
+## Category-Specific Handling
+
+Different material categories are handled differently:
+
+<CardGroup cols={2}>
+  <Card title="Standard Materials" icon="cube" color="#2B5EA7">
+    Materia prima, esencias, varios, and colors use normal weight calculation
+  </Card>
+  <Card title="Empty Containers" icon="box-open" color="#D97706">
+    Envase vacío always has zero weight regardless of quantity
+  </Card>
+</CardGroup>
+
+### Empty Container Logic
+
+```typescript
+const pesoAprox = d.material.categoria === 'envase_vacio'
+    ? 0
+    : (d.material.peso_aproximado ?? 0)
+```
+
+<Warning>
+  Empty containers (`envase_vacio`) are tracked by quantity only and don't contribute to the total weight limit. This is intentional since they represent returned containers.
+</Warning>
+
+## Total Weight Calculation
+
+The total order weight sums all detail line weights:
+
+```typescript
+const totalKilos = detalles.reduce((sum, d) => sum + (d.cantidad_kilos ?? 0), 0)
+```
+
+### Null Safety
+
+The system safely handles null values:
+
+```typescript
+// Null cantidad_kilos is treated as 0
+sum + (d.cantidad_kilos ?? 0)
+
+// Null cantidad_solicitada results in null cantidad_kilos
+const cantidad_kilos = value != null ? value * pesoAprox : null
+```
+
+## Category Subtotals
+
+Weights are also calculated per material category:
+
+```typescript
+const subtotalesPorCategoria = detalles.reduce<Record<string, number>>(
+    (acc, d) => {
+        const key = d.material.categoria
+        acc[key] = (acc[key] ?? 0) + (d.cantidad_kilos ?? 0)
+        return acc
+    },
+    {}
+)
+```
+
+This creates an object like:
+
+```typescript
+{
+    materia_prima: 8500.5,
+    esencia: 450.25,
+    varios: 1200.0,
+    color: 125.5,
+    envase_vacio: 0
+}
+```
+
+## Weight Limits
+
+The system enforces maximum weight constraints:
+
+```typescript
+export const LIMITE_KG = 11_500  // Maximum allowed weight
+export const ALERTA_KG = 9_500   // Warning threshold
+```
+
+### Limit Checking
+
+```typescript
+const overLimit = totalKilos >= LIMITE_KG
+```
+
+### UI Enforcement
+
+Orders exceeding the limit cannot be submitted:
+
+```typescript
+{overLimit && !isReadonly && (
+    <div className="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-400 rounded-xl px-4 py-3 text-sm flex items-center gap-2 shadow-sm transition-colors">
+        <AlertTriangle size={16} className="shrink-0" />
+        <strong>Capacidad excedida:</strong> El pedido iguala o supera el límite de 11,500 kg. Reduce las cantidades para poder enviarlo.
+    </div>
+)}
+
+<button
+    onClick={() => setShowConfirm(true)}
+    disabled={!fechaEntrega || !tipoEntrega || isReadonly || overLimit}
+    className="..."
+>
+    <Send size={13} />
+    Enviar pedido
+</button>
+```
+
+<Tip>
+  The system uses `>=` for the limit check, meaning exactly 11,500 kg also triggers the over-limit state.
+</Tip>
+
+## Real-Time Updates
+
+Weights recalculate immediately when quantities change:
+
+1. User enters `cantidad_solicitada`
+2. System multiplies by `peso_aproximado`
+3. Updates `cantidad_kilos` in state
+4. Triggers `totalKilos` recalculation
+5. Updates `subtotalesPorCategoria`
+6. Checks `overLimit` condition
+7. UI reflects new totals
+
+### React State Flow
+
+```typescript
+// User updates quantity
+updateDetalle(materialId, newQuantity)
+  ↓
+// detalles state changes
+setDetalles(updatedDetalles)
+  ↓
+// Computed values recalculate
+const totalKilos = detalles.reduce(...)
+const subtotalesPorCategoria = detalles.reduce(...)
+const overLimit = totalKilos >= LIMITE_KG
+  ↓
+// UI re-renders with new values
+```
+
+## Detail Line Types
+
+The system uses typed data structures for weight tracking:
+
+```typescript
+export interface DetalleLinea {
+    material: Material
+    cantidad_kilos: number | null     // Calculated weight
+    cantidad_solicitada: number | null // User input
+    peso_total: number | null          // Same as cantidad_kilos for most items
+}
+
+export interface PedidoDetalle {
+    id: string
+    pedido_id: string
+    material_id: string
+    cantidad_kilos: number | null
+    cantidad_solicitada: number | null
+    peso_total: number | null
+    lote: string | null
+    peso: number | null
+    material?: Material
+}
+```
+
+## Database Persistence
+
+Calculated weights are stored when saving orders:
+
+```typescript
+const upsertRows = detalles
+    .filter(d => (d.cantidad_solicitada ?? 0) > 0)
+    .map(d => ({
+        pedido_id: pedidoId as string,
+        material_id: d.material.id,
+        cantidad_kilos: d.cantidad_kilos,      // Calculated weight
+        cantidad_solicitada: d.cantidad_solicitada,
+        peso_total: d.peso_total,
+    }))
+
+if (upsertRows.length > 0) {
+    await supabase
+        .from('pedido_detalle')
+        .upsert(upsertRows, { onConflict: 'pedido_id,material_id' })
+}
+```
+
+## Total Kilos in Orders
+
+The total weight is also stored at the order level:
+
+```typescript
+const { error } = await supabase
+    .from('pedidos')
+    .update({ 
+        total_kilos: totalKilos,  // Stored for quick access
+        fecha_entrega: fechaEntrega, 
+        tipo_entrega: tipoEntrega 
+    })
+    .eq('id', pedidoId)
+```
+
+## Weight Display
+
+Weights are displayed with proper formatting throughout the UI:
+
+### Floating Total Bar
+
+```typescript
+<span className="font-bold font-mono text-[#1E3A6E] dark:text-slate-100">
+    {totalKilos.toLocaleString('es-MX', { minimumFractionDigits: 2 })} kg
+</span>
+```
+
+### Confirmation Modal
+
+```typescript
+<div className="flex justify-between text-sm">
+    <span className="text-gray-500 dark:text-slate-400">Total:</span>
+    <span className="font-bold font-mono text-[#1E3A6E] dark:text-slate-100">
+        {totalKilos.toLocaleString('es-MX', { minimumFractionDigits: 2 })} kg
+    </span>
+</div>
+```
+
+### PDF Export
+
+Weights are converted to metric tons for printing:
+
+```typescript
+const toneladas = ((pedido?.total_kilos ?? 0) / 1000).toFixed(3)
+
+<div className="inline-block bg-[#1E3A6E] text-white px-3 py-1 rounded-md mb-1 border border-[#1E3A6E] shadow-sm">
+    <span className="text-[10px] font-medium opacity-80 mr-1">TONELADAS</span>
+    <span className="text-[14px] font-black">{toneladas}</span>
+</div>
+```
+
+## Material Categories
+
+Weight calculations respect the five material categories:
+
+```typescript
+export type Categoria =
+    | 'materia_prima'
+    | 'esencia'
+    | 'varios'
+    | 'envase_vacio'
+    | 'color'
+
+export const CATEGORIAS: CategoriaInfo[] = [
+    { key: 'materia_prima', label: 'Materias Primas', shortLabel: 'MP', color: '#2B5EA7', dot: 'bg-blue-600' },
+    { key: 'esencia', label: 'Esencias', shortLabel: 'Esen', color: '#7C3AED', dot: 'bg-purple-600' },
+    { key: 'varios', label: 'Varios', shortLabel: 'Var', color: '#059669', dot: 'bg-emerald-600' },
+    { key: 'color', label: 'Colores', shortLabel: 'Col', color: '#DC2626', dot: 'bg-red-600' },
+    { key: 'envase_vacio', label: 'Envases Vacíos', shortLabel: 'Env', color: '#D97706', dot: 'bg-amber-600' },
+]
+```
+
+## Example Calculation
+
+Let's walk through a complete example:
+
+### Input
+
+- Material: "Sosa Cáustica"
+- Category: `materia_prima`
+- Approximate weight: `25` kg per unit
+- Requested quantity: `100` units
+
+### Calculation
+
+```typescript
+const pesoAprox = 25  // Not envase_vacio
+const value = 100
+const cantidad_kilos = 100 × 25 = 2500
+```
+
+### Result
+
+```typescript
+{
+    material: { nombre: "Sosa Cáustica", peso_aproximado: 25, ... },
+    cantidad_solicitada: 100,
+    cantidad_kilos: 2500,
+    peso_total: 2500
+}
+```
+
+### Contribution to Totals
+
+```typescript
+totalKilos += 2500
+subtotalesPorCategoria['materia_prima'] += 2500
+```
+
+## FAQ
+
+<Accordion title="What happens if peso_aproximado is null?">
+  If a material's `peso_aproximado` is null, it's treated as 0, resulting in `cantidad_kilos = 0` regardless of requested quantity. Materials should always have a valid approximate weight configured.
+</Accordion>
+
+<Accordion title="Can I manually override the calculated weight?">
+  No, the weight calculation is automatic and cannot be manually overridden in the order creation interface. To change the weight, you must update the material's `peso_aproximado` value in the materials catalog.
+</Accordion>
+
+<Accordion title="Why do empty containers have zero weight?">
+  Empty containers represent materials being returned to the warehouse, not new materials being delivered. They don't consume truck capacity in the same way, so they're tracked by count only and excluded from the weight limit.
+</Accordion>
+
+<Accordion title="Is the weight limit enforced in the database?">
+  The primary enforcement is in the UI, which disables the submit button when over the limit. However, additional database-level validation may exist through triggers or functions for defense-in-depth.
+</Accordion>
+
+<Accordion title="What precision is used for weight calculations?">
+  JavaScript's standard number precision is used for calculations. Weights are displayed with 2 decimal places using `toLocaleString`, but the full precision is stored in the database as numeric values.
+</Accordion>
+
+## Related Features
+
+<CardGroup cols={2}>
+  <Card title="Order Management" icon="shopping-cart" href="/features/order-management">
+    Learn how weights affect order submission
+  </Card>
+  <Card title="PDF Generation" icon="file-pdf" href="/features/pdf-generation">
+    See how weights appear in exported documents
+  </Card>
+</CardGroup>

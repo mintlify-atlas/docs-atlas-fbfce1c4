@@ -1,0 +1,94 @@
+---
+title: Introduction
+description: Welcome to CEDIS Pedidos - A comprehensive B2B order management platform for distribution centers
+---
+
+# Welcome to CEDIS Pedidos
+
+CEDIS Pedidos is a centralized web platform designed for logistics optimization between multiple branches (sucursales) and distribution centers (CEDIS). The system streamlines the entire order workflow from initial request to final dispatch.
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get your environment set up and running in minutes
+  </Card>
+  <Card title="Branch Workflow" icon="store" href="/guides/branch-workflow">
+    Learn how branches create and manage orders
+  </Card>
+  <Card title="Admin Dashboard" icon="gauge" href="/guides/admin-workflow">
+    Discover admin features for order approval and management
+  </Card>
+  <Card title="Technical Reference" icon="code" href="/technical/architecture">
+    Explore the system architecture and database design
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Role-Based Access" icon="shield-halved">
+    Secure authentication with distinct workflows for administrators and branch users
+  </Card>
+  <Card title="Dynamic Weight Calculator" icon="weight-scale">
+    Real-time weight tracking with a 13,000 kg limit and visual progress indicators
+  </Card>
+  <Card title="Order State Management" icon="diagram-project">
+    Complete workflow: draft → sent → approved → printed with audit trail
+  </Card>
+  <Card title="Materials Catalog" icon="boxes-stacked">
+    168 pre-configured materials across 5 categories with automatic calculations
+  </Card>
+  <Card title="PDF Generation" icon="file-pdf">
+    Specialized sorting format for warehouse operations with multi-page layout
+  </Card>
+  <Card title="Row-Level Security" icon="lock">
+    Supabase RLS ensures branches only access their own orders
+  </Card>
+</CardGroup>
+
+## Technology Stack
+
+CEDIS Pedidos is built with modern technologies for reliability and performance:
+
+- **Frontend**: React 19 with TypeScript and Tailwind CSS
+- **Backend**: Supabase (PostgreSQL + Authentication + Row-Level Security)
+- **State Management**: Zustand for predictable state updates
+- **Build Tool**: Vite for fast development and optimized production builds
+- **Deployment**: Vercel-ready static site generation
+
+## Use Cases
+
+<AccordionGroup>
+  <Accordion title="Multi-Branch Order Management">
+    Centralize order requests from multiple branch locations to a single distribution center. Each branch maintains its own order history and draft orders while administrators have full visibility across all locations.
+  </Accordion>
+  
+  <Accordion title="Inventory Planning">
+    Track aggregate demand across all branches with real-time weight calculations. The system automatically calculates weights based on material properties and requested quantities, helping optimize truck capacity and delivery schedules.
+  </Accordion>
+  
+  <Accordion title="Warehouse Operations">
+    Generate specialized PDF formats that organize materials by category for efficient picking and packing. The printable format divides orders into separate sections for raw materials, containers, essences, colors, and miscellaneous items.
+  </Accordion>
+  
+  <Accordion title="Compliance and Auditing">
+    Maintain complete audit trails with timestamps for order creation, submission, approval, and printing. Row-level security ensures regulatory compliance by restricting data access to authorized users only.
+  </Accordion>
+</AccordionGroup>
+
+## System Overview
+
+CEDIS Pedidos replaces manual Excel-based order forms (FT-DOP-SUC-PED-04-00) with a web-based platform that provides:
+
+1. **Automated Code Generation**: Orders are automatically assigned unique codes in the format `[BRANCH]-[YYYYMMDD]-[SUFFIX]`
+2. **Real-Time Validation**: Weight limits are enforced at both the application and database level
+3. **Category-Specific Forms**: Different material categories (raw materials, containers, essences) have tailored input forms
+4. **Auto-Save Functionality**: Drafts are automatically saved every 30 seconds to prevent data loss
+5. **Multi-User Dashboard**: Administrators can filter, search, and manage orders from all branches
+
+## Getting Started
+
+Ready to get started? Check out our [Quick Start Guide](/quickstart) to set up your local development environment, or explore the [User Guides](/guides/branch-workflow) to learn about specific workflows.
+
+<Card title="View on GitHub" icon="github" href="https://github.com/AlejandroMartinezG/App_Pedidos_CEDIS">
+  Explore the source code and contribute to the project
+</Card>

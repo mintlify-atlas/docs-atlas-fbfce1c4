@@ -1,80 +1,278 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: 'Quickstart Guide'
+description: 'Get CEDIS Pedidos running locally in under 5 minutes'
+icon: 'rocket'
 ---
 
-## Get started in three steps
+Get your CEDIS Pedidos development environment up and running quickly. This guide will walk you through the complete setup process from cloning the repository to running the application locally.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Before you begin, ensure you have the following installed on your system:
+
+- **Node.js** (v18 or higher) - [Download here](https://nodejs.org/)
+- **npm**, **yarn**, or **pnpm** package manager
+- **Git** for version control
+- A **Supabase account** - [Sign up here](https://supabase.com/)
+
+<Note>
+This application requires a Supabase project with the proper database schema and Row Level Security (RLS) policies configured. See the [Database Setup](/database-setup) guide for details.
+</Note>
+
+## Installation Steps
+
+<Steps>
+  <Step title="Clone the Repository">
+    Start by cloning the CEDIS Pedidos repository to your local machine:
+
+    ```bash
+    git clone https://github.com/AlejandroMartinezG/App_Pedidos_CEDIS.git
+    cd App_Pedidos_CEDIS
+    ```
+  </Step>
+
+  <Step title="Install Dependencies">
+    Install all required dependencies using your preferred package manager:
+
+    <CodeGroup>
+      ```bash npm
+      npm install
+      ```
+
+      ```bash yarn
+      yarn install
+      ```
+
+      ```bash pnpm
+      pnpm install
+      ```
+    </CodeGroup>
+
+    This will install all the dependencies listed in `package.json`, including:
+    - **React 19** and **React Router** for the frontend
+    - **@supabase/supabase-js** for database and authentication
+    - **Tailwind CSS v4** and **Radix UI** for styling and components
+    - **Vite** for fast development and building
+  </Step>
+
+  <Step title="Configure Environment Variables">
+    Create a `.env` file in the root directory of your project and add your Supabase credentials:
+
+    ```bash .env
+    VITE_SUPABASE_URL=your_supabase_project_url
+    VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+    ```
+
+    <Warning>
+    Never commit your `.env` file to version control. The `.gitignore` file should already exclude it, but always verify before pushing code.
+    </Warning>
+
+    ### Getting Your Supabase Credentials
+
+    1. Go to your [Supabase Dashboard](https://app.supabase.com/)
+    2. Select your project
+    3. Navigate to **Settings** → **API**
+    4. Copy the **Project URL** and **anon/public key**
+
+    <Info>
+    The application validates these environment variables on startup. If they're missing, you'll see an error: "Missing Supabase environment variables. Check .env file." (see `src/lib/supabase.ts:7`)
+    </Info>
+  </Step>
+
+  <Step title="Start the Development Server">
+    Launch the Vite development server:
+
+    <CodeGroup>
+      ```bash npm
+      npm run dev
+      ```
+
+      ```bash yarn
+      yarn dev
+      ```
+
+      ```bash pnpm
+      pnpm dev
+      ```
+    </CodeGroup>
+
+    The application will start on `http://localhost:5173` by default. The development server includes:
+    - **Hot Module Replacement (HMR)** for instant updates
+    - **Network access** enabled to test on other devices on your network
+  </Step>
+
+  <Step title="Verify the Setup">
+    Open your browser and navigate to `http://localhost:5173`. You should see the login page of the CEDIS Pedidos application.
+
+    <Note>
+    On first run, you'll need to create a user account or use superadmin credentials. Superadmin accounts are auto-approved based on the email list in `src/context/AuthContext.tsx:33-36`.
+    </Note>
+  </Step>
+</Steps>
+
+## Quick Code Overview
+
+Here's how the application initializes and connects to Supabase:
+
+### Supabase Client Configuration
+
+```typescript src/lib/supabase.ts
+import { createClient } from '@supabase/supabase-js'
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
+
+if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('Missing Supabase environment variables. Check .env file.')
+}
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+```
+
+### Application Entry Point
+
+```tsx src/main.tsx
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import { App } from './App'
+import './index.css'
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+        <App />
+    </React.StrictMode>
+)
+```
+
+### Authentication Context
+
+The app uses a custom `AuthContext` to manage user sessions and role-based access:
+
+```tsx src/context/AuthContext.tsx
+export function AuthProvider({ children }: { children: ReactNode }) {
+    const [session, setSession] = useState<Session | null>(null)
+    const [user, setUser] = useState<UserProfile | null>(null)
+    const [loading, setLoading] = useState(true)
+
+    useEffect(() => {
+        // Load initial session
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            handleSession(session).finally(() => setLoading(false))
+        })
+
+        // React to future auth changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(
+            (_event, session) => {
+                setTimeout(() => handleSession(session), 0)
+            }
+        )
+        return () => subscription.unsubscribe()
+    }, [])
+
+    // ... authentication methods
+}
+```
+
+## Available Scripts
+
+The following scripts are available in `package.json`:
+
+| Script | Command | Description |
+|--------|---------|-------------|
+| `dev` | `vite` | Start the development server with HMR |
+| `build` | `tsc -b && vite build` | Type-check and build for production |
+| `lint` | `eslint .` | Run ESLint to check code quality |
+| `preview` | `vite preview` | Preview the production build locally |
+
+## Testing Your Setup
+
+To verify everything is working correctly:
+
+<Steps>
+  <Step title="Check the Console">
+    Open your browser's developer console (F12). You should see no errors related to Supabase connection or environment variables.
+  </Step>
+
+  <Step title="Test Authentication">
+    Try logging in with a test account or creating a new user. The authentication flow should work without errors.
+  </Step>
+
+  <Step title="Verify Routing">
+    After login, you should be automatically redirected based on your role:
+    - **Admin users** → `/dashboard`
+    - **Sucursal users** → `/nuevo-pedido`
+  </Step>
+</Steps>
+
+## Common Issues
 
 <AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
+  <Accordion title="Environment Variables Not Found">
+    **Error:** `Missing Supabase environment variables. Check .env file.`
+
+    **Solution:** 
+    - Ensure your `.env` file is in the project root directory
+    - Verify the variable names start with `VITE_` prefix
+    - Restart the development server after creating/modifying `.env`
   </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
+
+  <Accordion title="Port Already in Use">
+    **Error:** `Port 5173 is already in use`
+
+    **Solution:** 
+    - Kill the process using port 5173
+    - Or specify a different port: `vite --port 3000`
+  </Accordion>
+
+  <Accordion title="Supabase Connection Errors">
+    **Error:** Authentication or database errors
+
+    **Solution:** 
+    - Verify your Supabase credentials are correct
+    - Ensure your Supabase project is active
+    - Check that RLS policies are properly configured
+    - Verify the database schema matches the expected structure
   </Accordion>
 </AccordionGroup>
 
-### Step 2: Deploy your changes
+## Next Steps
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
+Now that you have CEDIS Pedidos running locally, explore these guides:
 
 <CardGroup cols={2}>
+  <Card
+    title="Architecture Overview"
+    icon="sitemap"
+    href="/technical/architecture"
+  >
+    Understand the application structure and design patterns
+  </Card>
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+  <Card
+    title="Database Setup"
+    icon="database"
+    href="/deployment/supabase-configuration"
+  >
+    Configure your Supabase database schema and RLS policies
+  </Card>
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+  <Card
+    title="Authentication Guide"
+    icon="lock"
+    href="/features/role-based-access"
+  >
+    Learn about the role-based authentication system
+  </Card>
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card
+    title="Database Tables"
+    icon="table"
+    href="/database/tables"
+  >
+    Explore the database schema and data models
+  </Card>
 </CardGroup>
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+Need help? Check out the [GitHub repository](https://github.com/AlejandroMartinezG/App_Pedidos_CEDIS) or review the source code for more details.
 </Note>

@@ -1,0 +1,459 @@
+---
+title: Order Management
+description: Create, edit, and track orders with automatic state transitions and draft auto-save
+icon: shopping-cart
+---
+
+CEDIS Pedidos provides comprehensive order management capabilities through the `usePedido` hook, enabling branch offices to create material requests, save drafts automatically, and submit orders for approval.
+
+## Core Hook: usePedido
+
+The `usePedido` hook manages all order state and operations. It's located at `~/workspace/source/src/hooks/usePedido.ts`.
+
+### State Management
+
+```typescript
+export function usePedido() {
+    const { user } = useAuth()
+    const [pedido, setPedido] = useState<Pedido | null>(null)
+    const [detalles, setDetalles] = useState<DetalleLinea[]>([])
+    const [saving, setSaving] = useState(false)
+    const [fechaEntrega, setFechaEntrega] = useState<string>('')
+    const [tipoEntrega, setTipoEntrega] = useState<TipoEntrega | null>(null)
+    
+    // Computed values
+    const totalKilos = detalles.reduce((sum, d) => sum + (d.cantidad_kilos ?? 0), 0)
+    const overLimit = totalKilos >= LIMITE_KG
+    
+    return {
+        pedido,
+        detalles,
+        totalKilos,
+        subtotalesPorCategoria,
+        overLimit,
+        saving,
+        fechaEntrega,
+        setFechaEntrega,
+        tipoEntrega,
+        setTipoEntrega,
+        initDetalles,
+        loadExistingPedido,
+        updateDetalle,
+        saveDraft,
+        submitPedido,
+    }
+}
+```
+
+## Order States
+
+Orders transition through four distinct states:
+
+<CardGroup cols={2}>
+  <Card title="Borrador" icon="pencil" color="#6B7280">
+    Initial state when creating or editing an order before submission
+  </Card>
+  <Card title="Enviado" icon="paper-plane" color="#D97706">
+    Order has been submitted and awaits CEDIS approval
+  </Card>
+  <Card title="Aprobado" icon="check-circle" color="#059669">
+    CEDIS has approved the order for fulfillment
+  </Card>
+  <Card title="Impreso" icon="print" color="#2B5EA7">
+    Order has been printed and is ready for warehouse processing
+  </Card>
+</CardGroup>
+
+### State Types
+
+```typescript
+export type EstadoPedido = 'borrador' | 'enviado' | 'aprobado' | 'impreso'
+
+export interface Pedido {
+    id: string
+    codigo_pedido: string
+    sucursal_id: string
+    fecha_entrega: string
+    tipo_entrega: TipoEntrega | null
+    total_kilos: number
+    estado: EstadoPedido
+    created_at: string
+    updated_at: string
+    enviado_at: string | null
+    enviado_por: string | null
+    sucursal?: Sucursal
+}
+```
+
+## Creating Orders
+
+### Initialize New Order
+
+When creating a new order, initialize all materials with null quantities:
+
+```typescript
+const initDetalles = (materiales: Material[]) => {
+    setDetalles(
+        materiales.map(m => ({
+            material: m,
+            cantidad_kilos: null,
+            cantidad_solicitada: null,
+            peso_total: null,
+        }))
+    )
+}
+```
+
+### Load Existing Order
+
+When editing an existing order, load saved quantities while showing all available materials:
+
+```typescript
+const loadExistingPedido = async (pedidoId: string, allMaterials: Material[]) => {
+    const { data: ped } = await supabase
+        .from('pedidos')
+        .select('*')
+        .eq('id', pedidoId)
+        .single()
+    if (ped) {
+        const pedidoData = ped as Pedido
+        setPedido(pedidoData)
+        setFechaEntrega(pedidoData.fecha_entrega)
+        if (pedidoData.tipo_entrega) setTipoEntrega(pedidoData.tipo_entrega)
+    }
+
+    const { data: dets } = await supabase
+        .from('pedido_detalle')
+        .select('*')
+        .eq('pedido_id', pedidoId)
+
+    // Build a map of saved quantities keyed by material_id
+    const savedMap = new Map<string, PedidoDetalle>(
+        ((dets as PedidoDetalle[]) ?? []).map(d => [d.material_id, d])
+    )
+
+    // Show ALL materials but prefill with saved quantities
+    setDetalles(
+        allMaterials.map(m => {
+            const saved = savedMap.get(m.id)
+            return {
+                material: m,
+                cantidad_kilos: saved?.cantidad_kilos ?? null,
+                cantidad_solicitada: saved?.cantidad_solicitada ?? null,
+                peso_total: saved?.peso_total ?? null,
+            }
+        })
+    )
+}
+```
+
+## Updating Order Lines
+
+The system automatically calculates weight in kilograms based on requested quantity:
+
+```typescript
+const updateDetalle = (materialId: string, value: number | null) => {
+    setDetalles(prev =>
+        prev.map(d => {
+            if (d.material.id !== materialId) return d
+            const pesoAprox = d.material.categoria === 'envase_vacio'
+                ? 0
+                : (d.material.peso_aproximado ?? 0)
+            const cantidad_kilos = value != null ? value * pesoAprox : null
+            return {
+                ...d,
+                cantidad_solicitada: value,
+                cantidad_kilos,
+                peso_total: cantidad_kilos,
+            }
+        })
+    )
+}
+```
+
+<Note>
+  Empty containers (`envase_vacio`) have zero weight and don't contribute to the total kilogram limit.
+</Note>
+
+## Auto-Save Functionality
+
+Orders in `borrador` state automatically save every 30 seconds:
+
+```typescript
+// Auto-save interval constant
+export const AUTOSAVE_INTERVAL = 30_000
+
+// Auto-save effect
+useEffect(() => {
+    if (pedido?.estado === 'borrador' && fechaEntrega) {
+        autoSaveRef.current = setInterval(() => saveDraft(true), AUTOSAVE_INTERVAL)
+    }
+    return () => {
+        if (autoSaveRef.current) clearInterval(autoSaveRef.current)
+    }
+}, [pedido?.estado, fechaEntrega, detalles])
+```
+
+<Tip>
+  Auto-save only runs when the order is in draft state and a delivery date is set.
+</Tip>
+
+## Saving Drafts
+
+The `saveDraft` function handles both creating new orders and updating existing ones:
+
+```typescript
+const saveDraft = async (isAuto = false): Promise<string | undefined> => {
+    const currentSucursalId = user?.sucursal_id || pedido?.sucursal_id
+    if (!currentSucursalId || !fechaEntrega) return
+    setSaving(true)
+    let pedidoId: string | undefined = pedido?.id
+    try {
+        // Fetch abreviacion from DB
+        let abreviacion = user?.sucursal?.abreviacion
+        if (!abreviacion) {
+            const { data: suc } = await supabase
+                .from('sucursales')
+                .select('abreviacion')
+                .eq('id', currentSucursalId)
+                .single()
+            abreviacion = suc?.abreviacion ?? 'SUC'
+        }
+        
+        // Generate unique order code with random suffix
+        const randomSuffix = Math.floor(Math.random() * 900 + 100).toString()
+        const codigoPedido = pedido?.codigo_pedido || 
+            `${abreviacion}-${format(new Date(fechaEntrega + 'T12:00:00'), 'yyyyMMdd')}-${randomSuffix}`
+
+        if (!pedidoId) {
+            // Create new order
+            const { data, error } = await supabase
+                .from('pedidos')
+                .insert({
+                    codigo_pedido: codigoPedido,
+                    sucursal_id: currentSucursalId,
+                    fecha_entrega: fechaEntrega,
+                    tipo_entrega: tipoEntrega,
+                    total_kilos: totalKilos,
+                    estado: 'borrador',
+                    enviado_at: null,
+                    enviado_por: null,
+                })
+                .select()
+                .single()
+            if (error) throw new Error(error.message)
+            if (data) {
+                setPedido(data as Pedido)
+                pedidoId = (data as Pedido).id
+            }
+        } else {
+            // Update existing order
+            const { error } = await supabase
+                .from('pedidos')
+                .update({ 
+                    total_kilos: totalKilos, 
+                    fecha_entrega: fechaEntrega, 
+                    tipo_entrega: tipoEntrega 
+                })
+                .eq('id', pedidoId)
+            if (error) throw new Error(error.message)
+        }
+
+        // Upsert and Delete detalles
+        if (pedidoId) {
+            const upsertRows = detalles
+                .filter(d => (d.cantidad_solicitada ?? 0) > 0)
+                .map(d => ({
+                    pedido_id: pedidoId as string,
+                    material_id: d.material.id,
+                    cantidad_kilos: d.cantidad_kilos,
+                    cantidad_solicitada: d.cantidad_solicitada,
+                    peso_total: d.peso_total,
+                }))
+
+            const deleteMaterialIds = detalles
+                .filter(d => (d.cantidad_solicitada ?? 0) <= 0)
+                .map(d => d.material.id)
+
+            if (upsertRows.length > 0) {
+                await supabase
+                    .from('pedido_detalle')
+                    .upsert(upsertRows, { onConflict: 'pedido_id,material_id' })
+            }
+
+            if (deleteMaterialIds.length > 0) {
+                await supabase
+                    .from('pedido_detalle')
+                    .delete()
+                    .eq('pedido_id', pedidoId)
+                    .in('material_id', deleteMaterialIds)
+            }
+        }
+    } finally {
+        setSaving(false)
+    }
+    if (!isAuto) console.info('Pedido guardado')
+    return pedidoId
+}
+```
+
+## Submitting Orders
+
+Submitting an order changes its state to `enviado` and records submission metadata:
+
+```typescript
+const submitPedido = async () => {
+    const pedidoId = await saveDraft()
+    if (!pedidoId) throw new Error('No se pudo crear o guardar el pedido')
+    const { error } = await supabase
+        .from('pedidos')
+        .update({ 
+            estado: 'enviado' as const, 
+            enviado_at: new Date().toISOString(), 
+            enviado_por: user?.id ?? null 
+        })
+        .eq('id', pedidoId)
+    if (error) throw new Error(error.message)
+    setPedido(prev => prev ? { ...prev, estado: 'enviado' } : prev)
+}
+```
+
+<Warning>
+  Once submitted, orders cannot be modified by branch users. Only admins can edit submitted orders.
+</Warning>
+
+## Weight Limits
+
+Orders are subject to weight constraints defined in constants:
+
+```typescript
+export const LIMITE_KG = 11_500  // Maximum allowed weight
+export const ALERTA_KG = 9_500   // Warning threshold
+```
+
+The system prevents submission when the limit is reached:
+
+```typescript
+const overLimit = totalKilos >= LIMITE_KG
+
+// In the UI
+<button
+    onClick={() => setShowConfirm(true)}
+    disabled={!fechaEntrega || !tipoEntrega || isReadonly || overLimit}
+    className="..."
+>
+    <Send size={13} />
+    Enviar pedido
+</button>
+```
+
+## Order Code Generation
+
+Order codes follow the format: `{BRANCH_ABBREVIATION}-{YYYYMMDD}-{RANDOM_3_DIGITS}`
+
+```typescript
+const randomSuffix = Math.floor(Math.random() * 900 + 100).toString()
+const codigoPedido = `${abreviacion}-${format(new Date(fechaEntrega + 'T12:00:00'), 'yyyyMMdd')}-${randomSuffix}`
+```
+
+Example: `MTY-20260305-421`
+
+## Subtotals by Category
+
+The hook computes weight subtotals for each material category:
+
+```typescript
+const subtotalesPorCategoria = detalles.reduce<Record<string, number>>(
+    (acc, d) => {
+        const key = d.material.categoria
+        acc[key] = (acc[key] ?? 0) + (d.cantidad_kilos ?? 0)
+        return acc
+    },
+    {}
+)
+```
+
+## Usage Example
+
+Here's how `usePedido` is used in the order creation page:
+
+```typescript
+export function NuevoPedido() {
+    const { id } = useParams<{ id?: string }>()
+    const { user } = useAuth()
+    const { materiales, loading: matLoading } = useMateriales()
+    const {
+        pedido, detalles, totalKilos, subtotalesPorCategoria,
+        saving, fechaEntrega, setFechaEntrega, tipoEntrega, setTipoEntrega,
+        initDetalles, loadExistingPedido, updateDetalle,
+        saveDraft, submitPedido,
+    } = usePedido()
+
+    useEffect(() => {
+        if (materiales.length === 0) return
+        if (id) {
+            loadExistingPedido(id, materiales)
+        } else {
+            initDetalles(materiales)
+        }
+    }, [materiales])
+
+    const handleSave = async () => {
+        if (!fechaEntrega) { 
+            showToast('Selecciona una fecha de entrega', 'error')
+            return 
+        }
+        try { 
+            await saveDraft()
+            showToast(isAdmin ? 'Cambios guardados' : 'Borrador guardado') 
+        }
+        catch (e) { 
+            showToast('Error al guardar', 'error') 
+        }
+    }
+
+    const handleSubmit = async () => {
+        setSubmitting(true)
+        try {
+            await submitPedido()
+            setShowConfirm(false)
+            showToast('Pedido enviado exitosamente')
+        } catch (e) {
+            showToast(e instanceof Error ? e.message : 'Error al enviar', 'error')
+        } finally {
+            setSubmitting(false)
+        }
+    }
+    
+    // ... UI rendering
+}
+```
+
+## FAQ
+
+<Accordion title="Can I edit an order after submitting it?">
+  No, once an order transitions to `enviado` state, branch users cannot modify it. Only administrators can edit submitted orders. This ensures order integrity and prevents accidental changes after submission.
+</Accordion>
+
+<Accordion title="What happens if I lose connection while editing?">
+  The auto-save feature saves your draft every 30 seconds, so you'll only lose at most 30 seconds of work. When you reconnect, you can continue editing from the last auto-saved state.
+</Accordion>
+
+<Accordion title="Why does my order code have random numbers?">
+  The 3-digit random suffix prevents code collisions when multiple branches create orders for the same delivery date. This ensures each order has a unique identifier.
+</Accordion>
+
+<Accordion title="What counts toward the weight limit?">
+  All materials except empty containers (`envase_vacio`) count toward the 11,500 kg limit. Empty containers have zero weight since they're being returned.
+</Accordion>
+
+## Related Features
+
+<CardGroup cols={2}>
+  <Card title="Weight Calculator" icon="scale-balanced" href="/features/weight-calculator">
+    Learn how weights are automatically calculated
+  </Card>
+  <Card title="PDF Generation" icon="file-pdf" href="/features/pdf-generation">
+    Export orders to printable PDF format
+  </Card>
+</CardGroup>

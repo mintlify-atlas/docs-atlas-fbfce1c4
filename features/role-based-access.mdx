@@ -1,0 +1,416 @@
+---
+title: Role-Based Access Control
+description: Authentication system with role-based permissions and account state management
+icon: shield-halved
+---
+
+CEDIS Pedidos implements a comprehensive authentication and authorization system through the `AuthContext`, managing user sessions, roles, and account states.
+
+## Authentication Architecture
+
+The system uses Supabase Auth with a custom user profile layer that extends authentication with role-based permissions.
+
+### Auth Context Structure
+
+```typescript
+interface AuthContextValue {
+    session: Session | null
+    user: UserProfile | null
+    loading: boolean
+    loginMessage: string | null
+    signIn: (email: string, password: string) => Promise<{ error: string | null }>
+    signUp: (params: SignUpParams) => Promise<{ error: string | null }>
+    signOut: () => Promise<void>
+    isSuperAdmin: boolean
+}
+
+export interface SignUpParams {
+    email: string
+    password: string
+    nombre: string
+    sucursal_id: string | null
+    mensaje?: string
+}
+```
+
+## User Roles
+
+The system defines two primary roles:
+
+<CardGroup cols={2}>
+  <Card title="Admin" icon="user-shield" color="#2B5EA7">
+    Full system access including user management, order approval, and material administration
+  </Card>
+  <Card title="Sucursal" icon="store" color="#059669">
+    Branch office user with permissions to create and manage their own orders
+  </Card>
+</CardGroup>
+
+### Role Type Definition
+
+```typescript
+export type Rol = 'admin' | 'sucursal'
+
+export interface UserProfile {
+    id: string
+    nombre: string
+    email: string
+    rol: Rol
+    sucursal_id: string | null
+    sucursal?: Sucursal
+    estado_cuenta: EstadoCuenta
+    es_superadmin: boolean
+}
+```
+
+## Account States
+
+User accounts transition through three states:
+
+```typescript
+export type EstadoCuenta = 'pendiente' | 'activo' | 'inactivo'
+```
+
+<CardGroup cols={3}>
+  <Card title="Pendiente" icon="clock" color="#D97706">
+    Newly registered account awaiting admin approval
+  </Card>
+  <Card title="Activo" icon="check-circle" color="#059669">
+    Approved account with full access
+  </Card>
+  <Card title="Inactivo" icon="ban" color="#DC2626">
+    Deactivated account with access revoked
+  </Card>
+</CardGroup>
+
+## Super Admin Configuration
+
+Super admins are defined by email address and bypass the approval process:
+
+```typescript
+const SUPERADMIN_EMAILS = [
+    'auxiliar.almacen@clorodehidalgo.com',
+    'alejandro2310.am@gmail.com',
+]
+
+const isSuperAdmin = user?.es_superadmin === true ||
+    SUPERADMIN_EMAILS.includes(user?.email?.toLowerCase() ?? '')
+```
+
+<Note>
+  Super admins are automatically activated upon registration and don't require approval.
+</Note>
+
+## User Profile Fetching
+
+The system uses raw fetch to bypass Supabase client queue issues during auth state changes:
+
+```typescript
+async function fetchProfileRaw(userId: string, accessToken: string): Promise<UserProfile | null> {
+    try {
+        const url = `${SUPABASE_URL}/rest/v1/users?id=eq.${userId}&select=id,email,nombre,rol,estado_cuenta,es_superadmin,sucursal_id,sucursal:sucursales(id,nombre,abreviacion,ciudad)&limit=1`
+        const res = await fetch(url, {
+            headers: {
+                'apikey': SUPABASE_ANON,
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+            },
+        })
+        if (!res.ok) return null
+        const rows: UserProfile[] = await res.json()
+        return rows[0] ?? null
+    } catch {
+        return null
+    }
+}
+```
+
+<Warning>
+  Using raw fetch instead of the Supabase client prevents internal deadlocks when making HTTP requests inside auth state change callbacks.
+</Warning>
+
+## Session Management
+
+The `handleSession` function validates user accounts and enforces access rules:
+
+```typescript
+const handleSession = async (sess: Session | null) => {
+    setSession(sess)
+    if (!sess?.user) { setUser(null); return }
+
+    const profile = await fetchProfileRaw(sess.user.id, sess.access_token)
+
+    if (!profile) {
+        await supabase.auth.signOut()
+        setUser(null)
+        setSession(null)
+        setLoginMessage('No se encontró tu perfil. Contacta al administrador.')
+        return
+    }
+    if (profile.estado_cuenta === 'pendiente') {
+        await supabase.auth.signOut()
+        setUser(null)
+        setSession(null)
+        setLoginMessage('pending')
+        return
+    }
+    if (profile.estado_cuenta === 'inactivo') {
+        await supabase.auth.signOut()
+        setUser(null)
+        setSession(null)
+        setLoginMessage('Tu cuenta ha sido desactivada. Contacta al administrador.')
+        return
+    }
+    setUser(profile)
+    setLoginMessage(null)
+}
+```
+
+### Session Initialization
+
+```typescript
+useEffect(() => {
+    // Load initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+        handleSession(session).finally(() => setLoading(false))
+    })
+
+    // React to future auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+        (_event, session) => {
+            // Use setTimeout to prevent supabase-js internal deadlock
+            // when making HTTP requests inside the auth event callback
+            setTimeout(() => handleSession(session), 0)
+        }
+    )
+    return () => subscription.unsubscribe()
+}, [])
+```
+
+<Tip>
+  The `setTimeout` with zero delay prevents Supabase client internal deadlocks by allowing the auth callback to complete before making additional requests.
+</Tip>
+
+## Sign In
+
+The sign-in flow authenticates users and validates their account state:
+
+```typescript
+const signIn = async (email: string, password: string): Promise<{ error: string | null }> => {
+    setLoginMessage(null)
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) return { error: 'Correo o contraseña incorrectos.' }
+    return { error: null }
+    // onAuthStateChange → setTimeout → handleSession → fetchProfileRaw → setUser
+}
+```
+
+## Sign Up
+
+New user registration creates both an auth user and a profile record:
+
+```typescript
+const signUp = async (params: SignUpParams): Promise<{ error: string | null }> => {
+    const { email, password, nombre, sucursal_id, mensaje } = params
+
+    const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { data: { nombre } },
+    })
+
+    if (error) {
+        if (error.message.includes('already registered') || error.message.includes('already exists')) {
+            return { error: 'Este correo ya está registrado.' }
+        }
+        return { error: error.message }
+    }
+
+    if (!data.user) return { error: 'No se pudo crear la cuenta.' }
+
+    const isSuperAdm = SUPERADMIN_EMAILS.includes(email.toLowerCase())
+    const estado_cuenta = isSuperAdm ? 'activo' : 'pendiente'
+    const rol = isSuperAdm ? 'admin' : 'sucursal'
+
+    const { error: profileError } = await supabase.from('users').upsert({
+        id: data.user.id,
+        email,
+        nombre,
+        rol,
+        sucursal_id: isSuperAdm ? null : sucursal_id,
+        estado_cuenta,
+        es_superadmin: isSuperAdm,
+    }, { onConflict: 'id' })
+
+    if (profileError) {
+        console.error('Profile insert error:', profileError)
+        return { error: 'Cuenta creada pero hubo un error al guardar el perfil.' }
+    }
+
+    if (!isSuperAdm) {
+        await supabase.from('solicitudes_acceso').insert({
+            user_id: data.user.id,
+            nombre,
+            email,
+            sucursal_id,
+            mensaje: mensaje || null,
+        })
+        await supabase.auth.signOut()
+    }
+
+    return { error: null }
+}
+```
+
+<Note>
+  Non-super-admin users are automatically signed out after registration and must wait for approval. An access request is created for admin review.
+</Note>
+
+## Sign Out
+
+Sign out clears both the Supabase session and local state:
+
+```typescript
+const signOut = async () => {
+    await supabase.auth.signOut()
+    setUser(null)
+    setSession(null)
+}
+```
+
+## Access Request System
+
+New branch users create access requests that admins must approve:
+
+```typescript
+export type EstadoSolicitud = 'pendiente' | 'aprobado' | 'rechazado'
+
+export interface SolicitudAcceso {
+    id: string
+    user_id: string | null
+    nombre: string
+    email: string
+    sucursal_id: string | null
+    sucursal?: Sucursal
+    mensaje: string | null
+    estado: EstadoSolicitud
+    revisado_por: string | null
+    revisado_at: string | null
+    created_at: string
+}
+```
+
+## Permission Checks
+
+### Read-Only Access
+
+Branch users cannot edit orders that have been submitted:
+
+```typescript
+const isAdmin = user?.rol === 'admin'
+const isReadonly = !isAdmin && pedido != null && pedido.estado !== 'borrador'
+```
+
+### UI Example
+
+```typescript
+{isReadonly && (
+    <div className="mb-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-900/50 text-blue-700 dark:text-blue-300 rounded-xl px-4 py-3 text-sm flex items-center gap-2 shadow-sm transition-colors">
+        <AlertTriangle size={16} className="shrink-0" />
+        Este pedido ya fue enviado. No puedes modificarlo.
+    </div>
+)}
+```
+
+## Using the Auth Context
+
+Access authentication state in any component:
+
+```typescript
+import { useAuth } from '@/context/AuthContext'
+
+export function MyComponent() {
+    const { user, isSuperAdmin, signOut } = useAuth()
+    
+    if (!user) {
+        return <div>Please log in</div>
+    }
+    
+    return (
+        <div>
+            <p>Welcome, {user.nombre}</p>
+            <p>Role: {user.rol}</p>
+            {user.sucursal && <p>Branch: {user.sucursal.nombre}</p>}
+            {isSuperAdmin && <p>Super Admin Access</p>}
+            <button onClick={signOut}>Sign Out</button>
+        </div>
+    )
+}
+```
+
+### Hook Guard
+
+```typescript
+export function useAuth() {
+    const ctx = useContext(AuthContext)
+    if (!ctx) throw new Error('useAuth must be used inside AuthProvider')
+    return ctx
+}
+```
+
+<Warning>
+  Always use `useAuth` within the `AuthProvider` tree or an error will be thrown.
+</Warning>
+
+## Branch Association
+
+Users are associated with specific branches through `sucursal_id`:
+
+```typescript
+export interface Sucursal {
+    id: string
+    nombre: string
+    abreviacion: string
+    ciudad: string
+    activa: boolean
+}
+```
+
+Branch information is joined when fetching user profiles:
+
+```typescript
+select=id,email,nombre,rol,estado_cuenta,es_superadmin,sucursal_id,sucursal:sucursales(id,nombre,abreviacion,ciudad)
+```
+
+## FAQ
+
+<Accordion title="How do I become a super admin?">
+  Super admin status is controlled by adding your email address to the `SUPERADMIN_EMAILS` array in `AuthContext.tsx`. This requires code-level access and deployment. Contact the system administrator to request super admin privileges.
+</Accordion>
+
+<Accordion title="What happens if my account is set to 'pendiente'?">
+  Accounts in the pending state cannot access the system. When you try to log in, you'll be immediately signed out with a message indicating your account is pending approval. An admin must change your account status to 'activo' before you can access the system.
+</Accordion>
+
+<Accordion title="Can admins view all branch orders?">
+  Yes, administrators have access to all orders from all branches. They can view, edit, approve, and manage orders regardless of which branch created them.
+</Accordion>
+
+<Accordion title="Why does sign-up sign me out immediately?">
+  Non-super-admin users are signed out after registration to prevent unauthorized access. Your account must be reviewed and approved by an administrator first. You'll receive notification once your account is activated.
+</Accordion>
+
+<Accordion title="What if I don't belong to any branch?">
+  Admin users (particularly super admins) don't need to be associated with a specific branch. They have system-wide access. However, branch users (`rol: 'sucursal'`) must have a valid `sucursal_id` to create orders.
+</Accordion>
+
+## Related Features
+
+<CardGroup cols={2}>
+  <Card title="Order Management" icon="shopping-cart" href="/features/order-management">
+    Learn how permissions affect order operations
+  </Card>
+  <Card title="Security" icon="shield" href="/technical/security">
+    Complete authentication and RLS documentation
+  </Card>
+</CardGroup>

@@ -1,0 +1,245 @@
+---
+title: Environment Setup
+description: Configure environment variables and set up your local development environment for CEDIS Pedidos
+---
+
+## Overview
+
+CEDIS Pedidos requires specific environment variables to connect to your Supabase backend. This guide walks you through configuring your local development environment and understanding the required variables.
+
+<Warning>
+Never commit your `.env` file to version control. The `.env` file contains sensitive credentials that should remain private.
+</Warning>
+
+## Required Environment Variables
+
+The application requires two essential environment variables to connect to Supabase:
+
+| Variable | Description | Example |
+|----------|-------------|----------|
+| `VITE_SUPABASE_URL` | Your Supabase project URL | `https://xxxxx.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | Your Supabase anonymous/public key | `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...` |
+
+<Note>
+These variables use the `VITE_` prefix because the application is built with Vite. This prefix exposes the variables to the client-side code.
+</Note>
+
+## Local Development Setup
+
+<Steps>
+  <Step title="Clone the repository">
+    Clone the CEDIS Pedidos repository to your local machine:
+
+    ```bash
+    git clone https://github.com/AlejandroMartinezG/App_Pedidos_CEDIS.git
+    cd App_Pedidos_CEDIS
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    Install all required Node.js dependencies using npm:
+
+    ```bash
+    npm install
+    ```
+
+    The application requires Node.js to be installed on your system. The key dependencies include:
+    - React 19 for the UI framework
+    - Vite 6 for build tooling and development server
+    - Supabase JS Client for backend connectivity
+    - Tailwind CSS for styling
+  </Step>
+
+  <Step title="Create environment file">
+    Create a `.env` file in the root directory of the project:
+
+    ```bash
+    touch .env
+    ```
+
+    Add your Supabase credentials to the `.env` file:
+
+    ```bash .env
+    VITE_SUPABASE_URL=your_supabase_project_url
+    VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+    ```
+
+    Replace the placeholder values with your actual Supabase credentials obtained from your Supabase project dashboard.
+  </Step>
+
+  <Step title="Verify configuration">
+    The Supabase client configuration validates that environment variables are set at runtime:
+
+    ```typescript src/lib/supabase.ts
+    import { createClient } from '@supabase/supabase-js'
+
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+        throw new Error('Missing Supabase environment variables. Check .env file.')
+    }
+
+    export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+    ```
+
+    If variables are missing, the application will throw an error on startup.
+  </Step>
+
+  <Step title="Start development server">
+    Start the Vite development server:
+
+    ```bash
+    npm run dev
+    ```
+
+    The development server will start on `http://localhost:5173` by default (or another port if 5173 is in use).
+
+    <Note>
+    The Vite configuration enables network access (`host: true`), allowing you to access the development server from other devices on your local network.
+    </Note>
+  </Step>
+</Steps>
+
+## Development Configuration
+
+### Vite Configuration
+
+The application uses a custom Vite configuration (`vite.config.ts`):
+
+```typescript vite.config.ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
+import path from 'path'
+
+export default defineConfig({
+  plugins: [
+    react(),
+    tailwindcss(),
+  ],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+    },
+  },
+  server: {
+    host: true, // Permite conexiones desde otros dispositivos en la red
+  },
+})
+```
+
+Key features:
+- **Path alias**: `@/` maps to `./src/` for cleaner imports
+- **Network access**: Development server accessible on local network
+- **React plugin**: Fast Refresh for instant HMR
+- **Tailwind CSS**: Vite plugin for Tailwind v4
+
+### NPM Scripts
+
+Available scripts from `package.json`:
+
+<CodeGroup>
+```bash Development
+npm run dev
+# Starts Vite development server with HMR
+```
+
+```bash Build
+npm run build
+# Compiles TypeScript and builds production bundle
+```
+
+```bash Preview
+npm run preview
+# Preview production build locally
+```
+
+```bash Lint
+npm run lint
+# Run ESLint to check code quality
+```
+</CodeGroup>
+
+## Obtaining Supabase Credentials
+
+To get your Supabase environment variables:
+
+<Steps>
+  <Step title="Access project dashboard">
+    Log in to your Supabase dashboard at [https://app.supabase.com](https://app.supabase.com)
+  </Step>
+
+  <Step title="Navigate to project settings">
+    Select your project and go to **Settings** → **API**
+  </Step>
+
+  <Step title="Copy credentials">
+    Copy the following values:
+    - **Project URL**: Use this for `VITE_SUPABASE_URL`
+    - **anon/public key**: Use this for `VITE_SUPABASE_ANON_KEY`
+
+    <Warning>
+    Do **not** use the `service_role` key in your frontend application. This key has elevated permissions and should only be used in secure backend environments.
+    </Warning>
+  </Step>
+</Steps>
+
+## Security Best Practices
+
+<Warning>
+**Environment Variable Security**
+
+- Never commit `.env` files to version control
+- Use `.gitignore` to exclude `.env` files
+- Rotate keys if accidentally exposed
+- Use Row Level Security (RLS) in Supabase to protect data
+- The `anon` key is safe for client-side use when RLS is properly configured
+</Warning>
+
+### Row Level Security
+
+The application relies on Supabase Row Level Security (RLS) policies to protect data. Even though the `anon` key is exposed in the client-side code, RLS ensures:
+
+- Users can only access data they're authorized to see
+- Sucursales (branches) can only view their own orders
+- Admins have elevated permissions across all data
+- Database operations are validated server-side
+
+## Troubleshooting
+
+### Missing Environment Variables
+
+**Error**: `Missing Supabase environment variables. Check .env file.`
+
+**Solution**: Ensure your `.env` file exists in the project root and contains both required variables.
+
+### Connection Errors
+
+**Error**: Cannot connect to Supabase
+
+**Solution**: 
+- Verify your `VITE_SUPABASE_URL` is correct
+- Check that your Supabase project is active
+- Ensure your API key hasn't been revoked
+
+### Build Errors
+
+**Error**: TypeScript compilation errors
+
+**Solution**: 
+```bash
+# Clear node_modules and reinstall
+rm -rf node_modules package-lock.json
+npm install
+
+# Run TypeScript compiler
+npm run build
+```
+
+## Next Steps
+
+Once your local environment is configured:
+
+1. [Configure Supabase](/deployment/supabase-configuration) - Set up your database schema and RLS policies
+2. [Deploy to Vercel](/deployment/vercel-deployment) - Deploy your application to production

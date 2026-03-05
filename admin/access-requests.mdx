@@ -1,0 +1,395 @@
+---
+title: 'Access Request Approvals'
+description: 'Handling and approving user access requests in CEDIS Pedidos'
+---
+
+## Overview
+
+The Access Request system allows new users to register and request access to the CEDIS Pedidos platform. Administrators review these requests and approve or reject them based on organizational policies.
+
+<Note>
+All access requests start in a `pendiente` (pending) state and require explicit admin approval before users can log in.
+</Note>
+
+## Access Request Structure
+
+Each access request contains:
+
+```typescript
+export interface SolicitudAcceso {
+  id: string
+  user_id: string | null        // Links to auth.users after creation
+  nombre: string                 // Full name
+  email: string                  // Email address
+  sucursal_id: string | null     // Requested branch assignment
+  mensaje: string | null         // Optional message from user
+  estado: 'pendiente' | 'aprobado' | 'rechazado'
+  revisado_por: string | null    // Admin user ID who reviewed
+  revisado_at: string | null     // Timestamp of review
+  created_at: string             // Request submission time
+}
+```
+
+Source: `src/lib/types.ts:41-53`
+
+## Database Schema
+
+```sql
+CREATE TABLE IF NOT EXISTS solicitudes_acceso (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       uuid REFERENCES users(id) ON DELETE CASCADE,
+  nombre        text NOT NULL,
+  email         text NOT NULL,
+  sucursal_id   uuid REFERENCES sucursales(id),
+  mensaje       text,
+  estado        text NOT NULL DEFAULT 'pendiente'
+    CHECK (estado IN ('pendiente','aprobado','rechazado')),
+  revisado_por  uuid REFERENCES users(id),
+  revisado_at   timestamptz,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+```
+
+Source: `supabase/add_auth_access_control.sql:14-26`
+
+## Accessing Access Requests
+
+<Steps>
+  <Step title="Navigate to Dashboard">
+    Click **Dashboard** in the main navigation.
+  </Step>
+  
+  <Step title="Open Solicitudes Tab">
+    Click the **Solicitudes & Usuarios** tab. A badge shows the count of pending requests.
+  </Step>
+  
+  <Step title="View Pending Requests">
+    The **Solicitudes de Acceso** sub-tab displays pending and reviewed requests.
+  </Step>
+</Steps>
+
+### Pending Request Badge
+
+The tab displays a notification badge when there are pending requests:
+
+```tsx
+<span className="bg-amber-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">
+  {pendingSolicitudes}
+</span>
+```
+
+Source: `src/pages/Dashboard.tsx:119-122` and `src/components/admin/SolicitudesPanel.tsx:180-183`
+
+## Reviewing Access Requests
+
+### Fetching Requests
+
+Requests are loaded with branch information:
+
+```typescript
+const { data } = await supabase
+  .from('solicitudes_acceso')
+  .select('*, sucursal:sucursales(nombre)')
+  .order('created_at', { ascending: false })
+```
+
+Source: `src/components/admin/SolicitudesPanel.tsx:42-45`
+
+### Request Card Display
+
+Each pending request shows:
+- **Name** (`nombre`)
+- **Email** (`email`)
+- **Requested Branch** (`sucursal.nombre`)
+- **Message** (`mensaje`) - optional note from the user
+- **Submission Date** (`created_at`)
+
+Implementation: `src/components/admin/SolicitudesPanel.tsx:215-231`
+
+## Approving Access Requests
+
+<Steps>
+  <Step title="Review Request Details">
+    Check the user's name, email, requested branch, and any message they provided.
+  </Step>
+  
+  <Step title="Click Aprobar Button">
+    Click the green **Aprobar** button on the request card.
+  </Step>
+  
+  <Step title="User Account Activated">
+    The system updates both the request and the user's account status to `activo`.
+  </Step>
+</Steps>
+
+### Approval Logic
+
+```typescript
+const aprobar = async (s: SolicitudConSucursal) => {
+  if (!s.user_id) return
+  
+  // Activate the user account
+  await supabase
+    .from('users')
+    .update({ estado_cuenta: 'activo' })
+    .eq('id', s.user_id)
+  
+  // Mark request as approved
+  await supabase
+    .from('solicitudes_acceso')
+    .update({ 
+      estado: 'aprobado', 
+      revisado_at: new Date().toISOString() 
+    })
+    .eq('id', s.id)
+}
+```
+
+Source: `src/components/admin/SolicitudesPanel.tsx:65-74`
+
+<Note>
+Approving a request sets the user's `estado_cuenta` to `activo`, allowing them to log in immediately.
+</Note>
+
+## Rejecting Access Requests
+
+<Warning>
+Rejecting a request sets the user's account to `inactivo`. They will not be able to access the system.
+</Warning>
+
+<Steps>
+  <Step title="Identify Invalid Request">
+    Determine if the request should be denied (e.g., invalid email domain, unauthorized user).
+  </Step>
+  
+  <Step title="Click Rechazar Button">
+    Click the red **Rechazar** button on the request card.
+  </Step>
+  
+  <Step title="Account Marked Inactive">
+    The system marks the request as rejected and the user account as inactive.
+  </Step>
+</Steps>
+
+### Rejection Logic
+
+```typescript
+const rechazar = async (s: SolicitudConSucursal) => {
+  if (!s.user_id) return
+  
+  // Deactivate the user account
+  await supabase
+    .from('users')
+    .update({ estado_cuenta: 'inactivo' })
+    .eq('id', s.user_id)
+  
+  // Mark request as rejected
+  await supabase
+    .from('solicitudes_acceso')
+    .update({ 
+      estado: 'rechazado', 
+      revisado_at: new Date().toISOString() 
+    })
+    .eq('id', s.id)
+}
+```
+
+Source: `src/components/admin/SolicitudesPanel.tsx:77-86`
+
+## Request States
+
+Access requests can be in one of three states:
+
+<ParamField path="pendiente" type="EstadoSolicitud">
+  Awaiting admin review. Displayed prominently in the pending section.
+</ParamField>
+
+<ParamField path="aprobado" type="EstadoSolicitud">
+  Request approved. User can access the system. Moved to history.
+</ParamField>
+
+<ParamField path="rechazado" type="EstadoSolicitud">
+  Request rejected. User account is inactive. Moved to history.
+</ParamField>
+
+### Visual Indicators
+
+```typescript
+const estadoBadge = (estado: string) => {
+  if (estado === 'pendiente') 
+    return 'bg-amber-100 text-amber-700 border border-amber-200'
+  if (estado === 'aprobado') 
+    return 'bg-green-100 text-green-700 border border-green-200'
+  return 'bg-red-100 text-red-700 border border-red-200'
+}
+```
+
+Source: `src/components/admin/SolicitudesPanel.tsx:150-154`
+
+## Request History
+
+Reviewed requests (approved or rejected) are moved to a collapsible history section:
+
+```tsx
+<details className="group">
+  <summary>Historial revisadas ({revisadas.length})</summary>
+  {/* List of approved/rejected requests */}
+</details>
+```
+
+Source: `src/components/admin/SolicitudesPanel.tsx:248-269`
+
+<Note>
+The history section preserves audit trails showing who was approved/rejected and when.
+</Note>
+
+## Row-Level Security
+
+Access request policies:
+
+```sql
+-- Admins see all requests
+CREATE POLICY "sol_admin_sel" ON solicitudes_acceso FOR SELECT
+  USING (EXISTS (
+    SELECT 1 FROM users WHERE id = auth.uid() AND rol = 'admin'
+  ));
+
+-- Admins can approve/reject
+CREATE POLICY "sol_admin_upd" ON solicitudes_acceso FOR UPDATE
+  USING (EXISTS (
+    SELECT 1 FROM users WHERE id = auth.uid() AND rol = 'admin'
+  ));
+
+-- Users can insert (self-registration)
+CREATE POLICY "sol_insert" ON solicitudes_acceso FOR INSERT
+  WITH CHECK (auth.role() = 'authenticated');
+
+-- Users can view their own requests
+CREATE POLICY "sol_own_sel_2" ON solicitudes_acceso FOR SELECT
+  USING (user_id = auth.uid());
+```
+
+Source: `supabase/add_auth_access_control.sql:32-46`
+
+## Pending Request Counter
+
+The system tracks pending requests to show notification badges:
+
+```typescript
+// Count pending requests
+const { count } = await supabase
+  .from('solicitudes_acceso')
+  .select('id', { count: 'exact', head: true })
+  .eq('estado', 'pendiente')
+  
+setPendingSolicitudes(count ?? 0)
+```
+
+Source: `src/pages/Dashboard.tsx:58-62`
+
+## User Registration Flow
+
+<Steps>
+  <Step title="User Self-Registers">
+    New user fills out registration form with name, email, branch selection, and optional message.
+  </Step>
+  
+  <Step title="Request Created">
+    A `solicitudes_acceso` record is created with `estado = 'pendiente'`.
+    
+    A corresponding `users` record is created with `estado_cuenta = 'pendiente'`.
+  </Step>
+  
+  <Step title="Admin Reviews">
+    Administrator receives notification (badge count increases).
+    
+    Admin reviews request details in the Solicitudes panel.
+  </Step>
+  
+  <Step title="Admin Approves or Rejects">
+    **If approved**: User's `estado_cuenta` → `activo`, can log in.
+    
+    **If rejected**: User's `estado_cuenta` → `inactivo`, cannot log in.
+  </Step>
+</Steps>
+
+## Best Practices
+
+### Review Criteria
+
+1. **Email Domain**: Verify the email belongs to authorized domains (e.g., `@clorodehidalgo.com`)
+2. **Branch Assignment**: Confirm the requested branch is appropriate
+3. **Message Review**: Read any message from the user for context
+4. **Duplicate Checks**: Ensure no duplicate accounts for the same person
+
+### Timely Processing
+
+<Note>
+Process access requests promptly to avoid blocking new users. Aim to review within 24 hours.
+</Note>
+
+### Communication
+
+If rejecting a request:
+1. Note the reason internally
+2. Consider reaching out to the user via email to explain why (external to the system)
+
+## Troubleshooting
+
+### Request Shows user_id = null
+
+**Cause**: The user account may not have been created properly during registration.
+
+**Solution**: This is an edge case. Verify the `users` table has a corresponding record. May require manual SQL intervention.
+
+### Cannot Approve or Reject
+
+**Cause**: User may not have `admin` role.
+
+**Solution**: Verify your account has `rol = 'admin'` in the `users` table:
+```sql
+SELECT rol FROM users WHERE id = auth.uid();
+```
+
+### User Still Cannot Log In After Approval
+
+**Cause**: The `users.estado_cuenta` may not have updated.
+
+**Solution**: Manually verify and update:
+```sql
+UPDATE users 
+SET estado_cuenta = 'activo' 
+WHERE email = 'user@example.com';
+```
+
+## Data Cleanup
+
+Periodically archive old requests:
+
+```sql
+-- View old approved/rejected requests
+SELECT * FROM solicitudes_acceso
+WHERE estado IN ('aprobado', 'rechazado')
+  AND revisado_at < NOW() - INTERVAL '6 months'
+ORDER BY revisado_at DESC;
+
+-- Optional: Delete very old requests (use with caution)
+DELETE FROM solicitudes_acceso
+WHERE estado IN ('aprobado', 'rechazado')
+  AND revisado_at < NOW() - INTERVAL '1 year';
+```
+
+<Warning>
+Deleting access request records removes audit history. Consider exporting to a backup before deletion.
+</Warning>
+
+## Related Sections
+
+<CardGroup cols={2}>
+  <Card title="User Management" icon="users" href="/admin/user-management">
+    Manage approved users and their permissions
+  </Card>
+  <Card title="Branch Management" icon="building" href="/admin/branch-management">
+    Configure branches that users request access to
+  </Card>
+</CardGroup>

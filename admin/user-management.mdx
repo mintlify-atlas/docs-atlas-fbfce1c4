@@ -1,0 +1,260 @@
+---
+title: 'User Management'
+description: 'Creating, editing, and managing user accounts in the CEDIS Pedidos system'
+---
+
+## Overview
+
+The User Management interface allows administrators to control access to the CEDIS Pedidos system. Admins can view all users, edit their details, activate/deactivate accounts, and manage user permissions across branch locations.
+
+<Note>
+Only users with `admin` role can access the user management panel. Super admins have additional privileges including the ability to permanently delete users.
+</Note>
+
+## User Roles
+
+The system supports two primary user roles:
+
+<ParamField path="admin" type="rol_enum">
+  Full administrative access. Can view all orders, approve requests, and manage users.
+</ParamField>
+
+<ParamField path="sucursal" type="rol_enum">
+  Branch-level access. Can create and edit orders for their assigned branch only.
+</ParamField>
+
+### Type Definition
+
+```typescript
+export interface UserProfile {
+  id: string
+  nombre: string
+  email: string
+  rol: 'admin' | 'sucursal'
+  sucursal_id: string | null
+  estado_cuenta: 'pendiente' | 'activo' | 'inactivo'
+  es_superadmin: boolean
+}
+```
+
+Source: `src/lib/types.ts:30-39`
+
+## Account States
+
+Users can be in one of three account states:
+
+- **Activo**: User can log in and access the system
+- **Pendiente**: Awaiting admin approval (cannot log in)
+- **Inactivo**: Account disabled (cannot log in)
+
+<Warning>
+Super admin accounts (`es_superadmin = true`) are protected and cannot be deactivated or deleted through the UI.
+</Warning>
+
+## Accessing User Management
+
+<Steps>
+  <Step title="Navigate to Dashboard">
+    From the main navigation, click on **Dashboard** or visit `/dashboard`.
+  </Step>
+  
+  <Step title="Switch to User Tab">
+    Click the **Solicitudes & Usuarios** tab to access user management features.
+  </Step>
+  
+  <Step title="Open User Management">
+    Within the panel, click the **Gestión de Usuarios** sub-tab to view all users.
+  </Step>
+</Steps>
+
+## Filtering and Searching Users
+
+The user management interface provides powerful filtering options:
+
+### Search Bar
+Search by name or email address in real-time.
+
+### Role Filter
+- Todos los roles
+- Admin
+- Sucursal
+
+### Status Filter
+- Todos los estados
+- Activo
+- Pendiente
+- Inactivo
+
+Implementation reference: `src/components/admin/SolicitudesPanel.tsx:277-310`
+
+## Editing User Details
+
+<Steps>
+  <Step title="Click Edit Icon">
+    In the user table, click the <icon>Edit2</icon> icon next to the user you want to modify.
+  </Step>
+  
+  <Step title="Modify User Fields">
+    Edit the inline form fields:
+    - **Nombre**: User's full name
+    - **Rol**: Admin or Sucursal
+    - **Estado**: Activo, Pendiente, or Inactivo
+    - **Sucursal**: Assign to a branch location (or leave blank for admin-only users)
+  </Step>
+  
+  <Step title="Save Changes">
+    Click **Guardar cambios** to update the user record.
+  </Step>
+</Steps>
+
+```tsx
+// Edit state structure
+interface EditState {
+  nombre: string
+  rol: 'admin' | 'sucursal'
+  estado_cuenta: 'activo' | 'pendiente' | 'inactivo'
+  sucursal_id: string
+}
+```
+
+Source: `src/components/admin/SolicitudesPanel.tsx:14-19`
+
+### Save Operation
+
+The save function updates the database:
+
+```typescript
+const saveEdit = async (userId: string) => {
+  if (!editState) return
+  setSaving(true)
+  try {
+    await supabase.from('users').update({
+      nombre: editState.nombre,
+      rol: editState.rol,
+      estado_cuenta: editState.estado_cuenta,
+      sucursal_id: editState.sucursal_id || null,
+    }).eq('id', userId)
+    // Refresh and close edit mode
+  } finally { setSaving(false) }
+}
+```
+
+Source: `src/components/admin/SolicitudesPanel.tsx:103-117`
+
+## Quick Status Toggle
+
+Admins can quickly activate or deactivate users:
+
+<Steps>
+  <Step title="Click Status Icon">
+    Click the <icon>UserCheck</icon> (activate) or <icon>UserX</icon> (deactivate) icon.
+  </Step>
+  
+  <Step title="Confirm Action">
+    The status toggles between `activo` and `inactivo` immediately.
+  </Step>
+</Steps>
+
+```typescript
+const toggleStatus = async (u: UserWithSucursal) => {
+  const next = u.estado_cuenta === 'activo' ? 'inactivo' : 'activo'
+  await supabase.from('users').update({ estado_cuenta: next }).eq('id', u.id)
+}
+```
+
+Source: `src/components/admin/SolicitudesPanel.tsx:119-126`
+
+<Warning>
+Deactivating a user immediately revokes their access. They will not be able to log in until reactivated.
+</Warning>
+
+## Deleting Users
+
+<Warning>
+**Super Admin Only**: Only super admin users can permanently delete user accounts. This action is irreversible.
+</Warning>
+
+<Steps>
+  <Step title="Click Delete Icon">
+    Super admins will see a <icon>Trash2</icon> icon in the actions column.
+  </Step>
+  
+  <Step title="Confirm Deletion">
+    A confirmation prompt appears: "¿Eliminar permanentemente a [User Name]?"
+  </Step>
+  
+  <Step title="Execute Deletion">
+    Click **Sí, eliminar** to permanently remove the user from the database.
+  </Step>
+</Steps>
+
+```typescript
+const deleteUser = async (userId: string) => {
+  await supabase.from('users').delete().eq('id', userId)
+}
+```
+
+Source: `src/components/admin/SolicitudesPanel.tsx:128-135`
+
+<Note>
+Deleting a user cascades to related records due to `ON DELETE CASCADE` constraints in the database schema.
+</Note>
+
+## Database Schema
+
+The users table structure:
+
+```sql
+CREATE TABLE users (
+  id          uuid PRIMARY KEY REFERENCES auth.users ON DELETE CASCADE,
+  nombre      text NOT NULL,
+  email       text UNIQUE NOT NULL,
+  rol         rol_enum NOT NULL,
+  sucursal_id uuid REFERENCES sucursales(id) ON DELETE SET NULL,
+  estado_cuenta text NOT NULL DEFAULT 'activo'
+    CHECK (estado_cuenta IN ('pendiente','activo','inactivo')),
+  es_superadmin boolean NOT NULL DEFAULT false
+);
+```
+
+Source: `supabase/schema.sql:26-32` and `supabase/add_auth_access_control.sql:8-11`
+
+## Row-Level Security
+
+Users table has RLS policies:
+
+```sql
+-- Users can read their own row; admins read all
+CREATE POLICY "users_select" ON users FOR SELECT
+  USING (id = auth.uid() OR EXISTS (
+    SELECT 1 FROM users WHERE id = auth.uid() AND rol = 'admin'
+  ));
+
+-- Users can update their own row
+CREATE POLICY "users_update" ON users FOR UPDATE 
+  USING (id = auth.uid());
+```
+
+Source: `supabase/schema.sql:116-119`
+
+<Note>
+Admins bypass these policies in practice because admin-level operations use the service role or appropriate elevated permissions.
+</Note>
+
+## Best Practices
+
+1. **Assign Branch Locations**: Always assign `sucursal_id` for users with `sucursal` role
+2. **Review Regularly**: Periodically audit user accounts and deactivate unused accounts
+3. **Super Admin Protection**: The system prevents modification of super admin accounts (`auxiliaralmacen@clorodehidalgo.com` and `alejandro2310.am@gmail.com`)
+4. **Use Deactivation**: Prefer deactivating over deleting users to maintain audit trails
+
+## Related Sections
+
+<CardGroup cols={2}>
+  <Card title="Access Request Approvals" icon="user-check" href="/admin/access-requests">
+    Learn how to approve new user access requests
+  </Card>
+  <Card title="Branch Management" icon="building" href="/admin/branch-management">
+    Manage branch locations and assignments
+  </Card>
+</CardGroup>
