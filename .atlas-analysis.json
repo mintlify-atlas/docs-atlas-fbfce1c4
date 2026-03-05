@@ -79,7 +79,7 @@
   },
   "keyFeatures": [
     "Role-based authentication (Admin and Branch users)",
-    "Dynamic order weight calculator with 13,000 kg limit",
+    "Dynamic order weight calculator with 11,500 kg limit (13,000 kg database maximum)",
     "Draft and workflow state management (draft → sent → approved → printed)",
     "168-material catalog across 5 categories (raw materials, essences, containers, colors, miscellaneous)",
     "PDF generation with specialized sorting format",

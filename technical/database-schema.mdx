@@ -392,7 +392,7 @@ interface Pedido {
 Defined in `src/lib/types.ts:67`
 
 <Note>
-  Orders have a **13,000 kg limit** enforced by the `validate_pedido_limit()` function.
+  Orders have an **11,500 kg frontend limit** with a **13,000 kg absolute database maximum** enforced by the `validate_pedido_limit()` function.
 </Note>
 
 ---
@@ -528,7 +528,7 @@ Defined in `src/lib/types.ts:41`
 
 ### validate_pedido_limit
 
-Validates that an order doesn't exceed the 13,000 kg limit.
+Validates that an order doesn't exceed the 13,000 kg absolute database maximum. The frontend enforces a stricter 11,500 kg operational limit.
 
 ```sql
 CREATE OR REPLACE FUNCTION validate_pedido_limit(p_pedido_id uuid)
@@ -545,7 +545,7 @@ const { data: isValid } = await supabase
   .rpc('validate_pedido_limit', { p_pedido_id: orderId })
 
 if (!isValid) {
-  throw new Error('Order exceeds 13,000 kg limit')
+  throw new Error('Order exceeds 13,000 kg absolute maximum')
 }
 ```
 

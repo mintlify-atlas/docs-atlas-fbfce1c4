@@ -205,7 +205,7 @@ Order headers containing delivery date, status, and metadata.
 <ParamField path="total_kilos" type="numeric" default="0">
   Total weight/quantity sum from `pedido_detalle`
   
-  **Business rule:** Must be < 13,000 kgs (validated by `validate_pedido_limit` function)
+  **Business rule:** Frontend enforces 11,500 kg limit; database function validates < 13,000 kg as absolute maximum
 </ParamField>
 
 <ParamField path="estado" type="estado_pedido" default="borrador">
@@ -362,7 +362,7 @@ Access requests for new user registration (approval workflow).
 
 ### validate_pedido_limit(p_pedido_id uuid)
 
-Validates that an order's total weight is under 13,000 kgs.
+Validates that an order's total weight is under 13,000 kg (absolute database maximum). Note: The frontend enforces a stricter 11,500 kg limit for operational safety.
 
 **Returns:** `boolean`
 

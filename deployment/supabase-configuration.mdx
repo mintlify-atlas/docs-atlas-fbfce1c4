@@ -162,7 +162,7 @@ CREATE TRIGGER trg_pedidos_updated_at
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 -- ─────────────────────────────────────────────
--- 5. RPC: validate 13,000 kg limit
+-- 5. RPC: validate 13,000 kg absolute maximum
 -- ─────────────────────────────────────────────
 CREATE OR REPLACE FUNCTION validate_pedido_limit(p_pedido_id uuid)
 RETURNS boolean LANGUAGE sql SECURITY DEFINER AS $$
@@ -313,7 +313,7 @@ CREATE POLICY "pedidos_update_sucursal" ON pedidos FOR UPDATE USING (
 2. **Admin Privileges**: Admin users have full read/write access across all data
 3. **Draft Protection**: Only draft orders can be modified by branches
 4. **Cascade Security**: Order details (`pedido_detalle`) inherit security from parent orders
-5. **Weight Validation**: RPC function validates 13,000 kg weight limit
+5. **Weight Validation**: RPC function validates 13,000 kg absolute maximum (frontend enforces 11,500 kg operational limit)
 
 <Warning>
 **Critical Security Notes**

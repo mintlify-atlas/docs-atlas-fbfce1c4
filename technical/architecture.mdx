@@ -209,7 +209,7 @@ The system includes a custom PostgreSQL function:
 
 **`validate_pedido_limit(p_pedido_id uuid)`** - Validates order weight limit
 - Returns `boolean`
-- Checks if order total_kilos < 13,000 kg
+- Checks if order total_kilos < 13,000 kg (absolute database maximum; frontend enforces 11,500 kg)
 - Defined as `SECURITY DEFINER` (runs with elevated privileges)
 - Source: `supabase/schema.sql:97`
 
