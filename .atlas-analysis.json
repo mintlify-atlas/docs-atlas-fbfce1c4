@@ -1,0 +1,100 @@
+{
+  "projectType": "saas",
+  "projectName": "CEDIS Pedidos",
+  "projectDescription": "B2B platform for managing, controlling, and dispatching automated orders from multiple branches to a distribution center (CEDIS)",
+  "theme": "maple",
+  "primaryColor": "#1E3A6E",
+  "lightColor": "#2B5EA7",
+  "darkColor": "#0F1E3A",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/order-management",
+              "features/role-based-access",
+              "features/weight-calculator",
+              "features/pdf-generation"
+            ]
+          },
+          {
+            "group": "User Guides",
+            "pages": [
+              "guides/branch-workflow",
+              "guides/admin-workflow",
+              "guides/materials-catalog",
+              "guides/order-states"
+            ]
+          },
+          {
+            "group": "Administration",
+            "pages": [
+              "admin/user-management",
+              "admin/branch-management",
+              "admin/access-requests"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Technical Reference",
+        "groups": [
+          {
+            "group": "Architecture",
+            "pages": [
+              "technical/architecture",
+              "technical/database-schema",
+              "technical/security"
+            ]
+          },
+          {
+            "group": "Database",
+            "pages": [
+              "database/tables",
+              "database/row-level-security",
+              "database/materials-catalog"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/environment-setup",
+              "deployment/supabase-configuration",
+              "deployment/vercel-deployment"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Role-based authentication (Admin and Branch users)",
+    "Dynamic order weight calculator with 13,000 kg limit",
+    "Draft and workflow state management (draft → sent → approved → printed)",
+    "168-material catalog across 5 categories (raw materials, essences, containers, colors, miscellaneous)",
+    "PDF generation with specialized sorting format",
+    "Real-time weight tracking in kilos and tons",
+    "Row-level security with Supabase RLS",
+    "Multi-branch order management dashboard"
+  ],
+  "publicApiSurface": [
+    "Authentication via Supabase Auth (email/password)",
+    "Orders API (pedidos table)",
+    "Materials Catalog API (materiales table)",
+    "Branch Management API (sucursales table)",
+    "Order Details API (pedido_detalle table)",
+    "User Management API (users table)",
+    "Access Requests API (solicitudes_acceso table)",
+    "validate_pedido_limit() RPC function"
+  ]
+}
